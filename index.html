@@ -684,7 +684,7 @@ function drawHandGlitchTriangle(p0, p1, p2) {
 
 /* ---------- landmark smoothing so effects stay glued to fingers without jitter ---------- */
 let smoothedHandsPts = [];
-let gestureState = ['none', 'none'];
+let gestureHistory = [[], []]; // small rolling buffer per hand slot for majority-vote stability
 
 function smoothLandmarks(rawHandsPts) {
   const alpha = 0.45; // higher = tighter/more responsive tracking, lower = smoother but laggier
@@ -705,10 +705,21 @@ function smoothLandmarks(rawHandsPts) {
   return result;
 }
 
+function stableGesture(rawGesture, slot) {
+  const hist = gestureHistory[slot];
+  hist.push(rawGesture);
+  if (hist.length > 4) hist.shift();
+  const counts = {};
+  hist.forEach(g => { counts[g] = (counts[g] || 0) + 1; });
+  let best = rawGesture, bestCount = 0;
+  Object.keys(counts).forEach(g => { if (counts[g] > bestCount) { best = g; bestCount = counts[g]; } });
+  return best;
+}
+
 function drawHandEffects() {
   if (lastHandLandmarks.length === 0) {
     smoothedHandsPts = [];
-    gestureState = ['none', 'none'];
+    gestureHistory = [[], []];
     tubeTwistPrevA = null;
     tubeTwistPrevB = null;
     return;
@@ -718,20 +729,19 @@ function drawHandEffects() {
     landmarks.map(p => ({ x: mirrored ? (1 - p.x) * W : p.x * W, y: p.y * H }))
   );
   const handsPts = smoothLandmarks(rawPts);
-  const gestures = handsPts.map((pts, i) => getHandGesture(pts, gestureState[i]));
-  gestureState = gestures;
+  const gestures = handsPts.map((pts, i) => stableGesture(getHandGesture(pts), i));
 
   // live debug label so you can see what's being detected while you tune your pose
-  handsPts.forEach((pts, i) => drawGestureLabel(pts[0], gestures[i]));
+  handsPts.forEach((pts, i) => drawGestureLabel(pts[0], gestures[i], pts));
 
-  // 1 or 2 hands, each independently: thumb + index + middle pinched -> per-hand triangle
+  // 1 or 2 hands, each independently: thumb + index + middle extended -> per-hand triangle
   handsPts.forEach((pts, i) => {
     if (gestures[i] === 'tri') {
       drawHandGlitchTriangle(pts[4], pts[8], pts[12]);
     }
   });
 
-  // exactly 2 hands, both doing a thumb+index pinch -> bridging triangle between them
+  // exactly 2 hands, both doing thumb+index only (finger-gun) -> bridging triangle between them
   if (handsPts.length === 2 && gestures[0] === 'pinch2' && gestures[1] === 'pinch2') {
     const idxA = handsPts[0][8], idxB = handsPts[1][8];
     const thumbA = handsPts[0][4], thumbB = handsPts[1][4];
@@ -739,7 +749,7 @@ function drawHandEffects() {
     drawHandGlitchTriangle(idxA, idxB, midThumb);
   }
 
-  // exactly 2 hands, both fully closed/pinched (all fingers) -> checkered twisting tube
+  // exactly 2 hands, both fully open (all 5 fingers extended) -> checkered twisting tube
   if (handsPts.length === 2 && gestures[0] === 'all' && gestures[1] === 'all') {
     drawGlitchTube(handsPts[0], handsPts[1]);
   } else {
@@ -748,46 +758,47 @@ function drawHandEffects() {
   }
 }
 
-function drawGestureLabel(wristPt, gesture) {
+function drawGestureLabel(wristPt, gesture, pts) {
   const labels = { tri: 'TRI', pinch2: 'PINCH2', all: 'ALL', none: '—' };
   const colors = { tri: '#7ee08a', pinch2: '#1ec8c8', all: '#f0c419', none: 'rgba(255,255,255,0.5)' };
-  const text = labels[gesture] || '—';
+  const f = getExtendedPattern(pts);
+  const pattern = (f.thumb ? 'T' : '_') + (f.index ? 'I' : '_') + (f.middle ? 'M' : '_') + (f.ring ? 'R' : '_') + (f.pinky ? 'P' : '_');
+  const text = (labels[gesture] || '—') + ' ' + pattern;
   ctx.save();
-  ctx.font = 'bold 13px monospace';
+  ctx.font = 'bold 12px monospace';
   ctx.textAlign = 'center';
   const w = ctx.measureText(text).width + 14;
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(wristPt.x - w / 2, wristPt.y + 14, w, 20);
   ctx.fillStyle = colors[gesture] || '#fff';
   ctx.fillText(text, wristPt.x, wristPt.y + 29);
   ctx.restore();
 }
 
-/* ---------- finger-combo gesture detection (with hysteresis so it doesn't flicker) ---------- */
+/* ---------- finger-combo gesture detection: based on which fingers are extended, not pinch distance ---------- */
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-function getHandGesture(pts, prevGesture) {
-  // scale reference: wrist to middle-finger knuckle, keeps thresholds size-independent
-  const scale = dist(pts[0], pts[9]) || 1;
-  const thumbIndex = dist(pts[4], pts[8]) / scale;
-  const thumbMiddle = dist(pts[4], pts[12]) / scale;
-  const thumbRing = dist(pts[4], pts[16]) / scale;
-  const thumbPinky = dist(pts[4], pts[20]) / scale;
+// a finger counts as "extended" when its tip sits farther from the wrist than its own middle joint
+function isFingerExtended(pts, tipIdx, pipIdx) {
+  return dist(pts[tipIdx], pts[0]) > dist(pts[pipIdx], pts[0]);
+}
 
-  const ENTER = 0.75;
-  const EXIT = 1.0;
+function getExtendedPattern(pts) {
+  return {
+    thumb: isFingerExtended(pts, 4, 2),
+    index: isFingerExtended(pts, 8, 6),
+    middle: isFingerExtended(pts, 12, 10),
+    ring: isFingerExtended(pts, 16, 14),
+    pinky: isFingerExtended(pts, 20, 18)
+  };
+}
 
-  const wasActive = prevGesture && prevGesture !== 'none';
-  const t = wasActive ? EXIT : ENTER;
+function getHandGesture(pts) {
+  const f = getExtendedPattern(pts);
 
-  const thumbIndexNear = thumbIndex < t;
-  const thumbMiddleNear = thumbMiddle < t;
-  const thumbRingNear = thumbRing < t;
-  const thumbPinkyNear = thumbPinky < t;
-
-  if (thumbIndexNear && thumbMiddleNear && thumbRingNear && thumbPinkyNear) return 'all';
-  if (thumbIndexNear && thumbMiddleNear && !thumbRingNear) return 'tri';
-  if (thumbIndexNear && !thumbMiddleNear) return 'pinch2';
+  if (f.thumb && f.index && f.middle && f.ring && f.pinky) return 'all';
+  if (f.thumb && f.index && f.middle && !f.ring && !f.pinky) return 'tri';
+  if (f.thumb && f.index && !f.middle && !f.ring && !f.pinky) return 'pinch2';
   return 'none';
 }
 
