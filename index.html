@@ -459,6 +459,20 @@ function drawVideoCover(context, vid, w, h, mirror) {
   context.restore();
 }
 
+// maps a normalized (0-1) point from MediaPipe's coordinate space to the exact same
+// cover-fit transform used to draw the video, so landmarks line up with what's on screen
+function mapNormToCanvas(nx, ny, mirror) {
+  const vw = video.videoWidth || W;
+  const vh = video.videoHeight || H;
+  const scale = Math.max(W / vw, H / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const dx = (W - dw) / 2, dy = (H - dh) / 2;
+  let x = dx + nx * dw;
+  const y = dy + ny * dh;
+  if (mirror) x = W - x;
+  return { x, y };
+}
+
 function resizeCanvases() {
   const rect = canvas.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
@@ -539,10 +553,13 @@ function drawFaceBlur(det) {
   const strength = parseInt(blurStrength.value, 10);
   const padPct = parseInt(blurPadding.value, 10) / 100;
 
-  const bw = box.width * W;
-  const bh = box.height * H;
-  const cx = mirrored ? (1 - box.xCenter) * W : box.xCenter * W;
-  const cy = box.yCenter * H;
+  const center = mapNormToCanvas(box.xCenter, box.yCenter, mirrored);
+  const vw = video.videoWidth || W;
+  const vh = video.videoHeight || H;
+  const scale = Math.max(W / vw, H / vh);
+  const bw = box.width * vw * scale;
+  const bh = box.height * vh * scale;
+  const cx = center.x, cy = center.y;
 
   const padX = bw * padPct;
   const padY = bh * padPct;
@@ -726,7 +743,7 @@ function drawHandEffects() {
   }
 
   const rawPts = lastHandLandmarks.map(landmarks =>
-    landmarks.map(p => ({ x: mirrored ? (1 - p.x) * W : p.x * W, y: p.y * H }))
+    landmarks.map(p => mapNormToCanvas(p.x, p.y, mirrored))
   );
   const handsPts = smoothLandmarks(rawPts);
   const gestures = handsPts.map((pts, i) => stableGesture(getHandGesture(pts), i));
