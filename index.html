@@ -33,6 +33,24 @@
     flex-direction:column;
   }
 
+  @media (orientation: landscape){
+    .app{
+      max-width:100%;
+      display:grid;
+      grid-template-columns: 1fr 180px;
+      grid-template-rows: auto 1fr auto;
+      grid-template-areas:
+        "view top"
+        "view modes"
+        "view ctrl";
+    }
+    .topbar{ grid-area:top; flex-direction:column; gap:16px; padding:16px 10px; }
+    .viewfinder{ grid-area:view; }
+    .modes{ grid-area:modes; flex-direction:column; gap:18px; justify-content:center; padding:10px; }
+    .controls{ grid-area:ctrl; flex-direction:column; gap:18px; padding:16px 10px; }
+    .side-tools{ right:auto; left:12px; bottom:12px; }
+  }
+
   /* top bar */
   .topbar{
     display:flex;
@@ -367,6 +385,7 @@
       <input type="range" id="handPadding" min="20" max="140" value="60">
     </div>
     <p style="font-size:10px;color:var(--muted);margin:0;line-height:1.6;">Tab Scan otomatis merekam video, tab lainnya mengambil foto.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Gestur tangan: <b style="color:var(--ink);">jempol+telunjuk+tengah rapat</b> = segitiga per tangan (1 atau 2 tangan terpisah) &middot; <b style="color:var(--ink);">jempol+telunjuk rapat (2 tangan)</b> = segitiga penjembatan &middot; <b style="color:var(--ink);">semua jari rapat (2 tangan)</b> = tabung kotak-kotak yang memelintir saat tangan digerakkan.</p>
   </div>
 
 </div>
@@ -427,6 +446,19 @@ function showToast(msg) {
   showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
 }
 
+function drawVideoCover(context, vid, w, h, mirror) {
+  const vw = vid.videoWidth || w;
+  const vh = vid.videoHeight || h;
+  if (!vw || !vh) return;
+  const scale = Math.max(w / vw, h / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const dx = (w - dw) / 2, dy = (h - dh) / 2;
+  context.save();
+  if (mirror) { context.translate(w, 0); context.scale(-1, 1); }
+  context.drawImage(vid, dx, dy, dw, dh);
+  context.restore();
+}
+
 function resizeCanvases() {
   const rect = canvas.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
@@ -438,6 +470,7 @@ function resizeCanvases() {
   off.height = H;
 }
 window.addEventListener('resize', resizeCanvases);
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvases, 250));
 
 /* ---------- mode tabs ---------- */
 // each capture mode also drives the hand-glitch color style
@@ -653,27 +686,120 @@ function drawHandEffects() {
   const handsPts = lastHandLandmarks.map(landmarks =>
     landmarks.map(p => ({ x: mirrored ? (1 - p.x) * W : p.x * W, y: p.y * H }))
   );
-  for (const pts of handsPts) {
-    drawHandGlitchTriangle(pts[0], pts[4], pts[8]);
-  }
-  if (handsPts.length === 2) {
+  const gestures = handsPts.map(getHandGesture);
+
+  // 1 or 2 hands, each independently: thumb + index + middle pinched -> per-hand triangle
+  handsPts.forEach((pts, i) => {
+    if (gestures[i] === 'tri') {
+      drawHandGlitchTriangle(pts[4], pts[8], pts[12]);
+    }
+  });
+
+  // exactly 2 hands, both doing a thumb+index pinch -> bridging triangle between them
+  if (handsPts.length === 2 && gestures[0] === 'pinch2' && gestures[1] === 'pinch2') {
     const idxA = handsPts[0][8], idxB = handsPts[1][8];
-    const wristA = handsPts[0][0], wristB = handsPts[1][0];
-    const midWrist = { x: (wristA.x + wristB.x) / 2, y: (wristA.y + wristB.y) / 2 };
-    drawHandGlitchTriangle(idxA, idxB, midWrist);
+    const thumbA = handsPts[0][4], thumbB = handsPts[1][4];
+    const midThumb = { x: (thumbA.x + thumbB.x) / 2, y: (thumbA.y + thumbB.y) / 2 };
+    drawHandGlitchTriangle(idxA, idxB, midThumb);
   }
+
+  // exactly 2 hands, both fully closed/pinched (all fingers) -> checkered twisting tube
+  if (handsPts.length === 2 && gestures[0] === 'all' && gestures[1] === 'all') {
+    drawGlitchTube(handsPts[0], handsPts[1]);
+  } else {
+    tubeTwistPrevA = null;
+    tubeTwistPrevB = null;
+  }
+}
+
+/* ---------- finger-combo gesture detection ---------- */
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function getHandGesture(pts) {
+  // scale reference: wrist to middle-finger knuckle, keeps thresholds size-independent
+  const scale = dist(pts[0], pts[9]) || 1;
+  const thumbIndex = dist(pts[4], pts[8]) / scale;
+  const thumbMiddle = dist(pts[4], pts[12]) / scale;
+  const thumbRing = dist(pts[4], pts[16]) / scale;
+  const thumbPinky = dist(pts[4], pts[20]) / scale;
+
+  const NEAR = 0.55;
+
+  const allClose = thumbIndex < NEAR && thumbMiddle < NEAR && thumbRing < NEAR && thumbPinky < NEAR;
+  if (allClose) return 'all';
+
+  const triClose = thumbIndex < NEAR && thumbMiddle < NEAR && thumbRing > NEAR;
+  if (triClose) return 'tri';
+
+  const pinch2 = thumbIndex < NEAR && thumbMiddle > NEAR;
+  if (pinch2) return 'pinch2';
+
+  return 'none';
+}
+
+/* ---------- checkered twisting tube (2-hand, all-fingers pinch) ---------- */
+let tubeTwistPhase = 0;
+let tubeTwistPrevA = null;
+let tubeTwistPrevB = null;
+const tubeColors = ['#f0c419', '#1a1a1a', '#d94d3a', '#1ec8c8'];
+
+function pinchCentroid(pts) {
+  const ids = [4, 8, 12, 16, 20];
+  let x = 0, y = 0;
+  ids.forEach(i => { x += pts[i].x; y += pts[i].y; });
+  return { x: x / ids.length, y: y / ids.length };
+}
+
+function drawGlitchTube(ptsA, ptsB) {
+  const A = pinchCentroid(ptsA);
+  const B = pinchCentroid(ptsB);
+  const scaleA = dist(ptsA[0], ptsA[9]);
+  const scaleB = dist(ptsB[0], ptsB[9]);
+  const tubeWidth = ((scaleA + scaleB) / 2) * 1.1;
+
+  const dx = B.x - A.x, dy = B.y - A.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 12) return;
+  const angle = Math.atan2(dy, dx);
+
+  // accumulate twist based on how much the pinch points have actually moved this frame
+  if (tubeTwistPrevA && tubeTwistPrevB) {
+    const moved = dist(A, tubeTwistPrevA) + dist(B, tubeTwistPrevB);
+    tubeTwistPhase += moved * 0.03;
+  }
+  tubeTwistPrevA = A;
+  tubeTwistPrevB = B;
+
+  const segLen = Math.max(10, tubeWidth * 0.55);
+  const segments = Math.max(4, Math.floor(len / segLen));
+  const actualSegLen = len / segments;
+
+  ctx.save();
+  ctx.translate(A.x, A.y);
+  ctx.rotate(angle);
+
+  for (let i = 0; i < segments; i++) {
+    const localX = i * actualSegLen + actualSegLen / 2;
+    const twist = tubeTwistPhase + i * 0.5;
+    const colorIndex = (i + Math.floor(twist / (Math.PI / 2))) % tubeColors.length;
+    const squeeze = 0.65 + 0.35 * Math.abs(Math.cos(twist));
+
+    ctx.save();
+    ctx.translate(localX, 0);
+    ctx.fillStyle = tubeColors[((colorIndex % tubeColors.length) + tubeColors.length) % tubeColors.length];
+    ctx.fillRect(-actualSegLen / 2, (-tubeWidth / 2) * squeeze, actualSegLen, tubeWidth * squeeze);
+    ctx.restore();
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(0, -tubeWidth / 2, len, tubeWidth);
+  ctx.restore();
 }
 
 /* ---------- main render loop ---------- */
 function renderFrame() {
-  offCtx.save();
-  if (mirrored) {
-    offCtx.scale(-1, 1);
-    offCtx.drawImage(video, -W, 0, W, H);
-  } else {
-    offCtx.drawImage(video, 0, 0, W, H);
-  }
-  offCtx.restore();
+  drawVideoCover(offCtx, video, W, H, mirrored);
 
   ctx.save();
   if (currentMode === 'malam') {
@@ -801,7 +927,7 @@ async function startCamera(isSwitch) {
     if (camera) camera.stop();
 
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode, width: 480, height: 640 },
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
     video.srcObject = stream;
