@@ -470,7 +470,20 @@ function resizeCanvases() {
   off.height = H;
 }
 window.addEventListener('resize', resizeCanvases);
-window.addEventListener('orientationchange', () => setTimeout(resizeCanvases, 250));
+window.addEventListener('orientationchange', () => {
+  setTimeout(async () => {
+    resizeCanvases();
+    if (stream) {
+      const track = stream.getVideoTracks()[0];
+      const dims = getIdealVideoDims();
+      try {
+        await track.applyConstraints({ width: { ideal: dims.width }, height: { ideal: dims.height } });
+      } catch (e) {
+        await startCamera(true);
+      }
+    }
+  }, 250);
+});
 
 /* ---------- mode tabs ---------- */
 // each capture mode also drives the hand-glitch color style
@@ -682,11 +695,44 @@ function drawHandGlitchTriangle(p0, p1, p2) {
   ctx.restore();
 }
 
+/* ---------- landmark smoothing so effects stay glued to fingers without jitter ---------- */
+let smoothedHandsPts = [];
+let gestureState = ['none', 'none'];
+
+function smoothLandmarks(rawHandsPts) {
+  const alpha = 0.45; // higher = tighter/more responsive tracking, lower = smoother but laggier
+  const result = [];
+  for (let h = 0; h < rawHandsPts.length; h++) {
+    const raw = rawHandsPts[h];
+    const prev = smoothedHandsPts[h];
+    if (!prev || prev.length !== raw.length) {
+      result.push(raw.map(p => ({ x: p.x, y: p.y })));
+    } else {
+      result.push(raw.map((p, i) => ({
+        x: prev[i].x + (p.x - prev[i].x) * alpha,
+        y: prev[i].y + (p.y - prev[i].y) * alpha
+      })));
+    }
+  }
+  smoothedHandsPts = result;
+  return result;
+}
+
 function drawHandEffects() {
-  const handsPts = lastHandLandmarks.map(landmarks =>
+  if (lastHandLandmarks.length === 0) {
+    smoothedHandsPts = [];
+    gestureState = ['none', 'none'];
+    tubeTwistPrevA = null;
+    tubeTwistPrevB = null;
+    return;
+  }
+
+  const rawPts = lastHandLandmarks.map(landmarks =>
     landmarks.map(p => ({ x: mirrored ? (1 - p.x) * W : p.x * W, y: p.y * H }))
   );
-  const gestures = handsPts.map(getHandGesture);
+  const handsPts = smoothLandmarks(rawPts);
+  const gestures = handsPts.map((pts, i) => getHandGesture(pts, gestureState[i]));
+  gestureState = gestures;
 
   // 1 or 2 hands, each independently: thumb + index + middle pinched -> per-hand triangle
   handsPts.forEach((pts, i) => {
@@ -712,10 +758,10 @@ function drawHandEffects() {
   }
 }
 
-/* ---------- finger-combo gesture detection ---------- */
+/* ---------- finger-combo gesture detection (with hysteresis so it doesn't flicker) ---------- */
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-function getHandGesture(pts) {
+function getHandGesture(pts, prevGesture) {
   // scale reference: wrist to middle-finger knuckle, keeps thresholds size-independent
   const scale = dist(pts[0], pts[9]) || 1;
   const thumbIndex = dist(pts[4], pts[8]) / scale;
@@ -723,17 +769,20 @@ function getHandGesture(pts) {
   const thumbRing = dist(pts[4], pts[16]) / scale;
   const thumbPinky = dist(pts[4], pts[20]) / scale;
 
-  const NEAR = 0.55;
+  const ENTER = 0.55;
+  const EXIT = 0.78;
 
-  const allClose = thumbIndex < NEAR && thumbMiddle < NEAR && thumbRing < NEAR && thumbPinky < NEAR;
-  if (allClose) return 'all';
+  const wasActive = prevGesture && prevGesture !== 'none';
+  const t = wasActive ? EXIT : ENTER;
 
-  const triClose = thumbIndex < NEAR && thumbMiddle < NEAR && thumbRing > NEAR;
-  if (triClose) return 'tri';
+  const thumbIndexNear = thumbIndex < t;
+  const thumbMiddleNear = thumbMiddle < t;
+  const thumbRingNear = thumbRing < t;
+  const thumbPinkyNear = thumbPinky < t;
 
-  const pinch2 = thumbIndex < NEAR && thumbMiddle > NEAR;
-  if (pinch2) return 'pinch2';
-
+  if (thumbIndexNear && thumbMiddleNear && thumbRingNear && thumbPinkyNear) return 'all';
+  if (thumbIndexNear && thumbMiddleNear && !thumbRingNear) return 'tri';
+  if (thumbIndexNear && !thumbMiddleNear) return 'pinch2';
   return 'none';
 }
 
@@ -919,6 +968,11 @@ flipBtn.addEventListener('click', async () => {
   await startCamera(true);
 });
 
+function getIdealVideoDims() {
+  const portrait = window.innerHeight >= window.innerWidth;
+  return portrait ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
+}
+
 /* ---------- start camera ---------- */
 async function startCamera(isSwitch) {
   try {
@@ -926,8 +980,9 @@ async function startCamera(isSwitch) {
     if (stream) stream.getTracks().forEach(t => t.stop());
     if (camera) camera.stop();
 
+    const dims = getIdealVideoDims();
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode, width: { ideal: dims.width }, height: { ideal: dims.height } },
       audio: false
     });
     video.srcObject = stream;
