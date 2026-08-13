@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glitch Hand // Dylphiiee</title>
+<style>
+  :root{
+    --bg:#0a0a0a;
+    --panel:#141414;
+    --accent:#ff7a1a;
+    --accent-dim:#7a3d0d;
+    --text:#f2e9df;
+    --muted:#7a746c;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Courier New', ui-monospace, monospace;
+    overflow-x:hidden;
+  }
+  .wrap{
+    max-width:520px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    padding:18px 16px 32px;
+  }
+  header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:14px;
+    border-bottom:1px solid #2a2a2a;
+    padding-bottom:10px;
+  }
+  header h1{
+    font-size:15px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    margin:0;
+    color:var(--accent);
+    font-weight:700;
+  }
+  header span{
+    font-size:10px;
+    color:var(--muted);
+    letter-spacing:0.08em;
+  }
+  .stage{
+    position:relative;
+    width:100%;
+    aspect-ratio:3/4;
+    background:#000;
+    border-radius:14px;
+    overflow:hidden;
+    border:1px solid #2a2a2a;
+    box-shadow: 0 0 0 1px #000, 0 8px 30px rgba(255,122,26,0.06);
+  }
+  video{
+    display:none;
+  }
+  canvas{
+    width:100%;
+    height:100%;
+    display:block;
+  }
+  .status{
+    position:absolute;
+    top:10px;
+    left:10px;
+    font-size:10px;
+    letter-spacing:0.08em;
+    padding:4px 9px;
+    border-radius:20px;
+    background:rgba(0,0,0,0.55);
+    border:1px solid var(--accent-dim);
+    color:var(--accent);
+    text-transform:uppercase;
+  }
+  .status.off{color:var(--muted);border-color:#2a2a2a;}
+  .start-overlay{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:14px;
+    background:radial-gradient(circle at center, #1a1208 0%, #050505 75%);
+    z-index:5;
+  }
+  .start-overlay p{
+    color:var(--muted);
+    font-size:11px;
+    max-width:240px;
+    text-align:center;
+    line-height:1.5;
+    margin:0;
+  }
+  button{
+    font-family:inherit;
+    cursor:pointer;
+    border:none;
+  }
+  #startBtn{
+    background:var(--accent);
+    color:#0a0a0a;
+    font-weight:700;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    font-size:12px;
+    padding:12px 26px;
+    border-radius:30px;
+    transition:transform .15s ease, box-shadow .15s ease;
+    box-shadow:0 4px 16px rgba(255,122,26,0.35);
+  }
+  #startBtn:active{transform:scale(0.96);}
+  .controls{
+    margin-top:16px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    background:var(--panel);
+    border:1px solid #232323;
+    border-radius:10px;
+    padding:10px 12px;
+  }
+  .row label{
+    font-size:10px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--muted);
+    min-width:76px;
+  }
+  input[type=range]{
+    flex:1;
+    -webkit-appearance:none;
+    height:3px;
+    background:#2a2a2a;
+    border-radius:3px;
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:14px;height:14px;
+    border-radius:50%;
+    background:var(--accent);
+    cursor:pointer;
+    box-shadow:0 0 8px rgba(255,122,26,0.6);
+  }
+  .modes{
+    display:flex;
+    gap:8px;
+  }
+  .mode-btn{
+    flex:1;
+    background:#1c1c1c;
+    color:var(--muted);
+    border:1px solid #2a2a2a;
+    border-radius:8px;
+    padding:9px 4px;
+    font-size:10px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+  }
+  .mode-btn.active{
+    background:var(--accent);
+    color:#0a0a0a;
+    border-color:var(--accent);
+    font-weight:700;
+  }
+  .hint{
+    margin-top:12px;
+    font-size:10px;
+    color:var(--muted);
+    text-align:center;
+    line-height:1.6;
+  }
+  .hint b{color:var(--accent);}
+  footer{
+    margin-top:auto;
+    padding-top:20px;
+    text-align:center;
+    font-size:9px;
+    letter-spacing:0.15em;
+    color:#3a3a3a;
+    text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Glitch // Hand</h1>
+    <span id="fps">-- fps</span>
+  </header>
+
+  <div class="stage">
+    <div class="status off" id="statusPill">Kamera off</div>
+    <video id="video" playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div class="start-overlay" id="startOverlay">
+      <button id="startBtn">Aktifkan Kamera</button>
+      <p>Efek glitch akan mengikuti telapak &amp; jari tanganmu secara real-time. Butuh izin kamera.</p>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="row modes" id="modeRow">
+      <button class="mode-btn active" data-mode="prism">Prism</button>
+      <button class="mode-btn" data-mode="chrome">Chrome</button>
+      <button class="mode-btn" data-mode="scan">Slit-scan</button>
+    </div>
+    <div class="row">
+      <label>Intensitas</label>
+      <input type="range" id="intensity" min="10" max="100" value="55">
+    </div>
+    <div class="row">
+      <label>Area patch</label>
+      <input type="range" id="patchSize" min="60" max="220" value="130">
+    </div>
+  </div>
+
+  <p class="hint">Gerakkan telapak tangan di depan kamera. Patch efek nempel &amp; berputar mengikuti orientasi tanganmu — mirip efek <b>filter TikTok</b> di referensimu.</p>
+
+  <footer>dylphiiee / handglitch</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const statusPill = document.getElementById('statusPill');
+const startOverlay = document.getElementById('startOverlay');
+const startBtn = document.getElementById('startBtn');
+const fpsLabel = document.getElementById('fps');
+const intensitySlider = document.getElementById('intensity');
+const patchSlider = document.getElementById('patchSize');
+const modeRow = document.getElementById('modeRow');
+
+let mode = 'prism';
+let lastLandmarksList = [];
+let camera = null;
+let W = 480, H = 640;
+
+// offscreen buffer to read pixel data of raw mirrored frame
+const off = document.createElement('canvas');
+const offCtx = off.getContext('2d', { willReadFrequently: true });
+
+modeRow.addEventListener('click', (e) => {
+  const btn = e.target.closest('.mode-btn');
+  if (!btn) return;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  mode = btn.dataset.mode;
+});
+
+function resizeCanvases() {
+  const rect = canvas.getBoundingClientRect();
+  const scale = window.devicePixelRatio || 1;
+  W = Math.round(rect.width * scale);
+  H = Math.round(rect.height * scale);
+  canvas.width = W;
+  canvas.height = H;
+  off.width = W;
+  off.height = H;
+}
+window.addEventListener('resize', resizeCanvases);
+
+function seededRand(seed) {
+  const x = Math.sin(seed) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// draw patch effect around a set of landmark points
+function drawGlitchPatch(landmarks) {
+  const pts = landmarks.map(p => ({ x: (1 - p.x) * W, y: p.y * H }));
+
+  // bounding box with padding based on patch size slider
+  const pad = parseInt(patchSlider.value, 10);
+  let minX = Math.min(...pts.map(p => p.x)) - pad;
+  let maxX = Math.max(...pts.map(p => p.x)) + pad;
+  let minY = Math.min(...pts.map(p => p.y)) - pad * 0.6;
+  let maxY = Math.max(...pts.map(p => p.y)) + pad * 0.6;
+
+  minX = Math.max(0, Math.floor(minX));
+  minY = Math.max(0, Math.floor(minY));
+  maxX = Math.min(W, Math.ceil(maxX));
+  maxY = Math.min(H, Math.ceil(maxY));
+
+  const pw = maxX - minX;
+  const ph = maxY - minY;
+  if (pw <= 4 || ph <= 4) return;
+
+  const intensity = parseInt(intensitySlider.value, 10) / 100;
+
+  const srcData = offCtx.getImageData(minX, minY, pw, ph);
+  const out = ctx.createImageData(pw, ph);
+  const src = srcData.data;
+  const dst = out.data;
+
+  const t = performance.now() * 0.004;
+
+  if (mode === 'prism') {
+    // chromatic aberration + slice offsets + hue-ish boost
+    const chOffset = Math.round(4 + intensity * 18);
+    for (let y = 0; y < ph; y++) {
+      const rowShift = Math.round(Math.sin(y * 0.25 + t * 3) * intensity * 14);
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const sx = Math.min(pw - 1, Math.max(0, x + rowShift));
+
+        const rx = Math.min(pw - 1, Math.max(0, sx + chOffset));
+        const bx = Math.min(pw - 1, Math.max(0, sx - chOffset));
+
+        const ri = (y * pw + rx) * 4;
+        const gi = (y * pw + sx) * 4;
+        const bi = (y * pw + bx) * 4;
+
+        let r = src[ri];
+        let g = src[gi + 1];
+        let b = src[bi + 2];
+
+        // posterize / boost saturation for psychedelic look
+        const boost = 1 + intensity * 1.4;
+        const avg = (r + g + b) / 3;
+        r = clamp(avg + (r - avg) * boost);
+        g = clamp(avg + (g - avg) * boost);
+        b = clamp(avg + (b - avg) * boost);
+
+        dst[di] = r;
+        dst[di + 1] = g;
+        dst[di + 2] = b;
+        dst[di + 3] = 255;
+      }
+    }
+  } else if (mode === 'chrome') {
+    // metallic / mirrored reflective sweep
+    const sweep = (Math.sin(t * 2) * 0.5 + 0.5);
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const mx = pw - 1 - x;
+        const si = (y * pw + mx) * 4;
+
+        let r = src[si];
+        let g = src[si + 1];
+        let b = src[si + 2];
+
+        const lum = (r + g + b) / 3;
+        const highlight = Math.abs((x / pw) - sweep) < 0.12 * intensity + 0.02 ? 60 * intensity : 0;
+
+        r = clamp(lum * 0.4 + r * 0.9 + highlight);
+        g = clamp(lum * 0.4 + g * 0.9 + highlight);
+        b = clamp(lum * 0.5 + b * 1.0 + highlight * 1.2);
+
+        dst[di] = r;
+        dst[di + 1] = g;
+        dst[di + 2] = b;
+        dst[di + 3] = 255;
+      }
+    }
+  } else {
+    // slit-scan datamosh: random horizontal strips pulled from shifted rows
+    const strips = 10 + Math.round(intensity * 20);
+    const stripH = Math.max(1, Math.floor(ph / strips));
+    for (let s = 0; s < strips; s++) {
+      const y0 = s * stripH;
+      const y1 = Math.min(ph, y0 + stripH);
+      const shift = Math.round((seededRand(s * 13.37 + Math.floor(t * 6)) - 0.5) * pw * intensity * 0.6);
+      for (let y = y0; y < y1; y++) {
+        for (let x = 0; x < pw; x++) {
+          const di = (y * pw + x) * 4;
+          const sx = ((x + shift) % pw + pw) % pw;
+          const si = (y * pw + sx) * 4;
+          dst[di] = src[si];
+          dst[di + 1] = src[si + 1];
+          dst[di + 2] = src[si + 2];
+          dst[di + 3] = 255;
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(out, minX, minY);
+
+  // thin accent outline around the patch
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,122,26,0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(minX, minY, pw, ph);
+  ctx.restore();
+}
+
+function clamp(v) {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+let frameCount = 0, lastFpsTime = performance.now();
+
+function renderFrame() {
+  // draw mirrored raw video to offscreen buffer for pixel reads
+  offCtx.save();
+  offCtx.scale(-1, 1);
+  offCtx.drawImage(video, -W, 0, W, H);
+  offCtx.restore();
+
+  // draw same frame to visible canvas as base
+  ctx.drawImage(off, 0, 0);
+
+  for (const landmarks of lastLandmarksList) {
+    drawGlitchPatch(landmarks);
+  }
+
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime > 500) {
+    fpsLabel.textContent = Math.round((frameCount * 1000) / (now - lastFpsTime)) + ' fps';
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+
+  requestAnimationFrame(renderFrame);
+}
+
+const hands = new Hands({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.5
+});
+hands.onResults((results) => {
+  lastLandmarksList = results.multiHandLandmarks || [];
+});
+
+async function startCamera() {
+  try {
+    startBtn.textContent = 'Memuat...';
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 480, height: 640 },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    resizeCanvases();
+
+    camera = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({ image: video });
+      },
+      width: 480,
+      height: 640
+    });
+    camera.start();
+
+    statusPill.textContent = 'Live';
+    statusPill.classList.remove('off');
+    startOverlay.style.display = 'none';
+
+    requestAnimationFrame(renderFrame);
+  } catch (err) {
+    startBtn.textContent = 'Aktifkan Kamera';
+    alert('Tidak bisa mengakses kamera: ' + err.message);
+  }
+}
+
+startBtn.addEventListener('click', startCamera);
+resizeCanvases();
+</script>
+</body>
+</html>
