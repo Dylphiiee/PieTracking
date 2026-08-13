@@ -548,6 +548,9 @@ closeBtn.addEventListener('click', () => {
 });
 
 /* ---------- face blur drawing ---------- */
+const faceLayerCanvas = document.createElement('canvas');
+const faceLayerCtx = faceLayerCanvas.getContext('2d', { willReadFrequently: true });
+
 function drawFaceBlur(det) {
   const box = det.boundingBox;
   const strength = parseInt(blurStrength.value, 10);
@@ -571,24 +574,39 @@ function drawFaceBlur(det) {
 
   if (w <= 2 || h <= 2) return;
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(minX + w / 2, minY + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.filter = `blur(${strength}px)`;
+  // build the blurred crop on a scratch layer first
+  faceLayerCanvas.width = w;
+  faceLayerCanvas.height = h;
+  faceLayerCtx.clearRect(0, 0, w, h);
+  faceLayerCtx.filter = `blur(${strength}px)`;
   const bleed = strength * 1.5;
-  ctx.drawImage(
+  faceLayerCtx.drawImage(
     off,
     Math.max(0, minX - bleed), Math.max(0, minY - bleed),
     Math.min(W, w + bleed * 2), Math.min(H, h + bleed * 2),
-    Math.max(0, minX - bleed), Math.max(0, minY - bleed),
-    Math.min(W, w + bleed * 2), Math.min(H, h + bleed * 2)
+    -bleed, -bleed,
+    w + bleed * 2, h + bleed * 2
   );
-  ctx.filter = 'none';
-  ctx.restore();
+  faceLayerCtx.filter = 'none';
+
+  // feather the edges with a radial fade instead of a hard oval cutout,
+  // so it blends into the surrounding skin/hair instead of looking like a stamp
+  faceLayerCtx.globalCompositeOperation = 'destination-in';
+  const grad = faceLayerCtx.createRadialGradient(
+    w / 2, h / 2, Math.min(w, h) * 0.22,
+    w / 2, h / 2, Math.max(w, h) * 0.58
+  );
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.75, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  faceLayerCtx.fillStyle = grad;
+  faceLayerCtx.fillRect(0, 0, w, h);
+  faceLayerCtx.globalCompositeOperation = 'source-over';
+
+  ctx.drawImage(faceLayerCanvas, minX, minY);
 }
 
-/* ---------- hand triangle glitch effect ---------- */
+/* ---------- hand glitch effect: flexible polygon anchored to fingertips ---------- */
 const patchCanvas = document.createElement('canvas');
 const patchCtx = patchCanvas.getContext('2d', { willReadFrequently: true });
 
@@ -673,12 +691,28 @@ function processHandPatchPixels(minX, minY, pw, ph) {
   patchCtx.putImageData(out, 0, 0);
 }
 
-function drawHandGlitchTriangle(p0, p1, p2) {
+function polygonCentroid(pts) {
+  let x = 0, y = 0;
+  pts.forEach(p => { x += p.x; y += p.y; });
+  return { x: x / pts.length, y: y / pts.length };
+}
+
+// sorts vertices around their centroid so they always form a simple (non-crossing)
+// polygon, however many fingertip points are passed in - triangle, quad, pentagon, etc.
+function sortPolygonPoints(pts) {
+  const c = polygonCentroid(pts);
+  return [...pts].sort((a, b) => Math.atan2(a.y - c.y, a.x - c.x) - Math.atan2(b.y - c.y, b.x - c.x));
+}
+
+function drawHandGlitchPolygon(rawPoints) {
+  if (rawPoints.length < 3) return;
+  const pts = sortPolygonPoints(rawPoints);
   const pad = parseInt(handPadding.value, 10) * 0.5;
-  let minX = Math.min(p0.x, p1.x, p2.x) - pad;
-  let maxX = Math.max(p0.x, p1.x, p2.x) + pad;
-  let minY = Math.min(p0.y, p1.y, p2.y) - pad;
-  let maxY = Math.max(p0.y, p1.y, p2.y) + pad;
+
+  let minX = Math.min(...pts.map(p => p.x)) - pad;
+  let maxX = Math.max(...pts.map(p => p.x)) + pad;
+  let minY = Math.min(...pts.map(p => p.y)) - pad;
+  let maxY = Math.max(...pts.map(p => p.y)) + pad;
   minX = Math.max(0, Math.floor(minX));
   minY = Math.max(0, Math.floor(minY));
   maxX = Math.min(W, Math.ceil(maxX));
@@ -690,9 +724,8 @@ function drawHandGlitchTriangle(p0, p1, p2) {
 
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(p0.x, p0.y);
-  ctx.lineTo(p1.x, p1.y);
-  ctx.lineTo(p2.x, p2.y);
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
   ctx.clip();
   ctx.drawImage(patchCanvas, minX, minY, pw, ph, minX, minY, pw, ph);
@@ -751,19 +784,19 @@ function drawHandEffects() {
   // live debug label so you can see what's being detected while you tune your pose
   handsPts.forEach((pts, i) => drawGestureLabel(pts[0], gestures[i], pts));
 
-  // 1 or 2 hands, each independently: thumb + index + middle extended -> per-hand triangle
+  // 1 or 2 hands, each independently: thumb + index + middle extended -> per-hand polygon
+  // uses wrist + all three fingertips, so it naturally forms a quad that hugs the hand shape
   handsPts.forEach((pts, i) => {
     if (gestures[i] === 'tri') {
-      drawHandGlitchTriangle(pts[4], pts[8], pts[12]);
+      drawHandGlitchPolygon([pts[0], pts[4], pts[8], pts[12]]);
     }
   });
 
-  // exactly 2 hands, both doing thumb+index only (finger-gun) -> bridging triangle between them
+  // exactly 2 hands, both doing thumb+index only (finger-gun) -> quad ribbon between both hands' tips
   if (handsPts.length === 2 && gestures[0] === 'pinch2' && gestures[1] === 'pinch2') {
-    const idxA = handsPts[0][8], idxB = handsPts[1][8];
-    const thumbA = handsPts[0][4], thumbB = handsPts[1][4];
-    const midThumb = { x: (thumbA.x + thumbB.x) / 2, y: (thumbA.y + thumbB.y) / 2 };
-    drawHandGlitchTriangle(idxA, idxB, midThumb);
+    const thumbA = handsPts[0][4], idxA = handsPts[0][8];
+    const thumbB = handsPts[1][4], idxB = handsPts[1][8];
+    drawHandGlitchPolygon([thumbA, idxA, idxB, thumbB]);
   }
 
   // exactly 2 hands, both fully open (all 5 fingers extended) -> checkered twisting tube
