@@ -470,20 +470,7 @@ function resizeCanvases() {
   off.height = H;
 }
 window.addEventListener('resize', resizeCanvases);
-window.addEventListener('orientationchange', () => {
-  setTimeout(async () => {
-    resizeCanvases();
-    if (stream) {
-      const track = stream.getVideoTracks()[0];
-      const dims = getIdealVideoDims();
-      try {
-        await track.applyConstraints({ width: { ideal: dims.width }, height: { ideal: dims.height } });
-      } catch (e) {
-        await startCamera(true);
-      }
-    }
-  }, 250);
-});
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvases, 250));
 
 /* ---------- mode tabs ---------- */
 // each capture mode also drives the hand-glitch color style
@@ -968,11 +955,6 @@ flipBtn.addEventListener('click', async () => {
   await startCamera(true);
 });
 
-function getIdealVideoDims() {
-  const portrait = window.innerHeight >= window.innerWidth;
-  return portrait ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
-}
-
 /* ---------- start camera ---------- */
 async function startCamera(isSwitch) {
   try {
@@ -980,9 +962,8 @@ async function startCamera(isSwitch) {
     if (stream) stream.getTracks().forEach(t => t.stop());
     if (camera) camera.stop();
 
-    const dims = getIdealVideoDims();
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode, width: { ideal: dims.width }, height: { ideal: dims.height } },
+      video: { facingMode },
       audio: false
     });
     video.srcObject = stream;
