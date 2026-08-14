@@ -289,6 +289,28 @@
     flex:1;
     accent-color:var(--accent);
   }
+  .filter-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-bottom:14px;
+  }
+  .filter-chip{
+    background:#fff;
+    border:1px solid rgba(0,0,0,0.12);
+    color:var(--ink);
+    font-size:11px;
+    font-weight:600;
+    padding:6px 12px;
+    border-radius:999px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .filter-chip.active{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
   .toast{
     position:absolute;
     bottom:150px;
@@ -332,6 +354,9 @@
       </button>
       <button class="icon-btn active" id="handToggleBtn" title="Aktif/nonaktifkan efek tangan">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M6 14v-1a2 2 0 0 0-4 0v3a8 8 0 0 0 8 8h2a8 8 0 0 0 8-8v-3"/></svg>
+      </button>
+      <button class="icon-btn" id="portalToggleBtn" title="Mode Portal Retrolens">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
       </button>
     </div>
 
@@ -380,14 +405,19 @@
       <label>Area segitiga</label>
       <input type="range" id="handPadding" min="20" max="140" value="60">
     </div>
-    <p style="font-size:10px;color:var(--muted);margin:0;line-height:1.6;">Tab Scan otomatis merekam video, tab lainnya mengambil foto.</p>
-    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Gestur tangan: <b style="color:var(--ink);">jempol+telunjuk+tengah rapat</b> = segitiga per tangan (1 atau 2 tangan terpisah) &middot; <b style="color:var(--ink);">jempol+telunjuk rapat (2 tangan)</b> = segitiga penjembatan &middot; <b style="color:var(--ink);">semua jari rapat (2 tangan)</b> = tabung kotak-kotak yang memelintir saat tangan digerakkan.</p>
+    <h3 style="margin-top:18px;">Filter tangan (15 pilihan)</h3>
+    <div class="filter-chips" id="filterChips"></div>
+    <p style="font-size:10px;color:var(--muted);margin:0;line-height:1.6;">Tap salah satu untuk langsung memakainya di gerbang portal &amp; segitiga tangan.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Tab Scan otomatis merekam video, tab lainnya mengambil foto.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Gestur tangan: <b style="color:var(--ink);">jempol+telunjuk+tengah terentang</b> = segitiga per tangan, masing-masing tangan punya filter sendiri &middot; sentuhkan <b style="color:var(--ink);">ujung telunjuk ke ujung jari tengah</b> pada tangan itu untuk ganti filter tangan tersebut saja &middot; <b style="color:var(--ink);">semua jari terentang (2 tangan)</b> = deretan kotak tinggi-pendek bergantian, tiap kotak menampilkan filter berbeda.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Mode Portal (2 tangan, jempol+telunjuk): membuka gerbang berisi 1 filter. Dekatkan <b style="color:var(--ink);">ujung telunjuk kanan &amp; kiri</b>, atau <b style="color:var(--ink);">jempol ke kelingking</b> di salah satu tangan, untuk ganti filter portal.</p>
   </div>
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 <script>
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -405,12 +435,14 @@ const sheet = document.getElementById('sheet');
 const sheetBackdrop = document.getElementById('sheetBackdrop');
 const blurToggleBtn = document.getElementById('blurToggleBtn');
 const handToggleBtn = document.getElementById('handToggleBtn');
+const portalToggleBtn = document.getElementById('portalToggleBtn');
 const maskScale = document.getElementById('maskScale');
 const confidenceSlider = document.getElementById('confidence');
 const handIntensity = document.getElementById('handIntensity');
 const handPadding = document.getElementById('handPadding');
 const modes = document.getElementById('modes');
 const toast = document.getElementById('toast');
+const filterChips = document.getElementById('filterChips');
 
 let W = 480, H = 640;
 let facingMode = 'user';
@@ -418,6 +450,8 @@ let mirrored = true;
 let faceEffectMode = 'mask'; // 'mask' | 'off'
 let handEnabled = true;
 let handMode = 'bw';
+let handFilterIndex = [0, 0]; // independent current filter per hand slot (1-hand triangle effect)
+let triSwitchLatched = [false, false]; // edge-trigger so the switch fires once per touch, per hand
 let flashOn = false;
 let currentMode = 'foto';
 let stream = null;
@@ -476,6 +510,7 @@ function resizeCanvases() {
   canvas.height = H;
   off.width = W;
   off.height = H;
+  buildGalaxyBackground();
 }
 window.addEventListener('resize', resizeCanvases);
 window.addEventListener('orientationchange', () => setTimeout(resizeCanvases, 250));
@@ -566,26 +601,37 @@ function drawFaceMask(det) {
   let maskW = bw * sizePct;
 
   const lm = det.landmarks;
-  if (lm && lm.length >= 4) {
-    // face_detection landmark order: 0 rightEye, 1 leftEye, 2 noseTip, 3 mouthCenter
+  if (lm && lm.length >= 6) {
+    // face_detection landmark order: 0 rightEye, 1 leftEye, 2 noseTip, 3 mouthCenter, 4 rightEar, 5 leftEar
     const eyeR = mapNormToCanvas(lm[0].x, lm[0].y, mirrored);
     const eyeL = mapNormToCanvas(lm[1].x, lm[1].y, mirrored);
     const nose = mapNormToCanvas(lm[2].x, lm[2].y, mirrored);
     const mouth = mapNormToCanvas(lm[3].x, lm[3].y, mirrored);
+    const earR = mapNormToCanvas(lm[4].x, lm[4].y, mirrored);
+    const earL = mapNormToCanvas(lm[5].x, lm[5].y, mirrored);
 
-    // roll angle straight from the eye line - this is what makes the mask tilt/turn with the head
-    angle = Math.atan2(eyeL.y - eyeR.y, eyeL.x - eyeR.x);
+    // roll angle from BOTH the eye line and the ear line, averaged - this is what makes the
+    // mask tilt/turn with the head instead of always sitting upright
+    const eyeAngle = Math.atan2(eyeL.y - eyeR.y, eyeL.x - eyeR.x);
+    const earAngle = Math.atan2(earL.y - earR.y, earL.x - earR.x);
+    angle = Math.atan2(
+      (Math.sin(eyeAngle) + Math.sin(earAngle)) / 2,
+      (Math.cos(eyeAngle) + Math.cos(earAngle)) / 2
+    );
 
-    // eye-to-eye distance tracks real face width & perspective (shrinks when the head turns/tilts
-    // away) far better than the axis-aligned detection box, so proportions follow the actual face
+    // ear-to-ear distance tracks the true head width even as it turns/tilts (foreshortens
+    // correctly on yaw, unlike the axis-aligned detection box), so the mask's proportions
+    // really do follow the shape of the face instead of a fixed ratio
+    const earDist = dist(earR, earL);
     const eyeDist = dist(eyeR, eyeL);
-    maskW = eyeDist * sizePct * 2.75;
+    const faceWidth = Math.max(eyeDist * 2.05, earDist * 0.92);
+    maskW = faceWidth * sizePct;
 
-    // anchor along the eye-midpoint -> mouth axis (not just eye line) so the mask hugs the whole
-    // face - forehead through chin - and rotates as one rigid piece stuck to the head
+    // anchor along the eye-midpoint -> mouth axis (the real vertical axis of the face, already
+    // rotated with the head) so the mask hugs forehead-to-chin as one rigid piece stuck on
     const eyeMid = { x: (eyeR.x + eyeL.x) / 2, y: (eyeR.y + eyeL.y) / 2 };
     const down = { x: mouth.x - eyeMid.x, y: mouth.y - eyeMid.y };
-    anchor = { x: eyeMid.x + down.x * 0.55, y: eyeMid.y + down.y * 0.55 };
+    anchor = { x: eyeMid.x + down.x * 0.5, y: eyeMid.y + down.y * 0.5 };
   }
 
   // light smoothing keeps the stick-on feel steady instead of visibly shaking each frame
@@ -610,22 +656,160 @@ function drawFaceMask(det) {
 }
 
 /* ---------- hand glitch effect: flexible polygon anchored to fingertips ---------- */
+/* ---------- unified filter engine: every hand-driven effect (single-hand triangle, the
+   2-hand grid, and the 2-hand portal) draws through this one function, so all 15 styles are
+   available everywhere ---------- */
+const ALL_FILTERS = [
+  { key: 'prism', label: 'Prism' },
+  { key: 'chrome', label: 'Chrome' },
+  { key: 'bw', label: 'B&W' },
+  { key: 'scan', label: 'Scan' },
+  { key: 'mono', label: 'Mono' },
+  { key: 'dual-tone', label: 'Dual-Tone' },
+  { key: 'pixelate', label: 'Pixelate' },
+  { key: 'invert', label: 'Invert' },
+  { key: 'sepia', label: 'Sepia' },
+  { key: 'blur', label: 'Blur' },
+  { key: 'thermal', label: 'Thermal' },
+  { key: 'sketch', label: 'Sketch' },
+  { key: 'glitch', label: 'Glitch' },
+  { key: 'neon', label: 'Neon' },
+  { key: 'galaxy', label: 'Galaxy' }
+];
+function filterLabel(key) { const f = ALL_FILTERS.find(f => f.key === key); return f ? f.label : key; }
+
+// settings sheet: tap a chip to jump every hand effect (both hand slots + the portal) to that filter
+ALL_FILTERS.forEach((f, idx) => {
+  const chip = document.createElement('button');
+  chip.className = 'filter-chip';
+  chip.type = 'button';
+  chip.textContent = f.label;
+  chip.addEventListener('click', () => {
+    handFilterIndex = [idx, idx];
+    portalFilterIndex = idx;
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    showToast('Filter: ' + f.label);
+  });
+  filterChips.appendChild(chip);
+});
+filterChips.children[0].classList.add('active');
+
 const patchCanvas = document.createElement('canvas');
 const patchCtx = patchCanvas.getContext('2d', { willReadFrequently: true });
+const styleTmpCanvas = document.createElement('canvas');
+const styleTmpCtx = styleTmpCanvas.getContext('2d');
+const galaxyCanvas = document.createElement('canvas');
+const galaxyCtx = galaxyCanvas.getContext('2d');
+
+function buildGalaxyBackground() {
+  if (!W || !H) return;
+  galaxyCanvas.width = W; galaxyCanvas.height = H;
+  galaxyCtx.fillStyle = '#1e0a28';
+  galaxyCtx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 260; i++) {
+    galaxyCtx.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.8 + 0.2).toFixed(2) + ')';
+    const s = Math.random() < 0.8 ? 1 : 2;
+    galaxyCtx.fillRect(Math.random() * W, Math.random() * H, s, s);
+  }
+  for (let i = 0; i < 32; i++) {
+    galaxyCtx.beginPath();
+    galaxyCtx.fillStyle = `rgb(${150 + Math.random() * 105 | 0},${100 + Math.random() * 155 | 0},255)`;
+    galaxyCtx.arc(Math.random() * W, Math.random() * H, Math.random() * 3 + 1, 0, Math.PI * 2);
+    galaxyCtx.fill();
+  }
+}
 
 function clampByte(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
-function processHandPatchPixels(minX, minY, pw, ph) {
+// draws the styled result for the given source rect into the shared `patchCanvas`
+function applyStyleFilterPixels(minX, minY, pw, ph, filterKey) {
+  patchCanvas.width = pw; patchCanvas.height = ph;
   const intensity = parseInt(handIntensity.value, 10) / 100;
-  const srcData = offCtx.getImageData(minX, minY, pw, ph);
-  patchCanvas.width = pw;
-  patchCanvas.height = ph;
-  const out = patchCtx.createImageData(pw, ph);
-  const src = srcData.data;
-  const dst = out.data;
   const t = performance.now() * 0.004;
 
-  if (handMode === 'prism') {
+  if (filterKey === 'blur') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'blur(6px)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'mono') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'grayscale(1)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'invert') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'invert(1)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'sepia') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'sepia(1)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'thermal') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'grayscale(1) sepia(1) hue-rotate(180deg) saturate(8) contrast(1.3)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'pixelate') {
+    const block = Math.max(4, Math.round(Math.min(pw, ph) * 0.07));
+    const sw = Math.max(1, Math.round(pw / block)), sh = Math.max(1, Math.round(ph / block));
+    styleTmpCanvas.width = sw; styleTmpCanvas.height = sh;
+    styleTmpCtx.clearRect(0, 0, sw, sh);
+    styleTmpCtx.drawImage(off, minX, minY, pw, ph, 0, 0, sw, sh);
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.imageSmoothingEnabled = false;
+    patchCtx.drawImage(styleTmpCanvas, 0, 0, sw, sh, 0, 0, pw, ph);
+    patchCtx.imageSmoothingEnabled = true;
+    return;
+  }
+  if (filterKey === 'sketch') {
+    styleTmpCanvas.width = pw; styleTmpCanvas.height = ph;
+    styleTmpCtx.clearRect(0, 0, pw, ph);
+    styleTmpCtx.filter = 'grayscale(1)';
+    styleTmpCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    styleTmpCtx.filter = 'none';
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.drawImage(styleTmpCanvas, 0, 0);
+    patchCtx.filter = 'blur(5px) invert(1)';
+    patchCtx.globalCompositeOperation = 'color-dodge';
+    patchCtx.drawImage(styleTmpCanvas, 0, 0);
+    patchCtx.filter = 'none';
+    patchCtx.globalCompositeOperation = 'source-over';
+    return;
+  }
+  if (filterKey === 'galaxy') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'brightness(0.5) saturate(0.5)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    patchCtx.globalCompositeOperation = 'screen';
+    patchCtx.globalAlpha = 0.85;
+    patchCtx.drawImage(galaxyCanvas, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.globalCompositeOperation = 'source-over';
+    patchCtx.globalAlpha = 1;
+    return;
+  }
+
+  // everything below needs real per-pixel access: prism, chrome, bw, scan, dual-tone, glitch, neon
+  const srcData = offCtx.getImageData(minX, minY, pw, ph);
+  const src = srcData.data;
+  const out = patchCtx.createImageData(pw, ph);
+  const dst = out.data;
+
+  if (filterKey === 'prism') {
     const chOffset = Math.round(4 + intensity * 18);
     for (let y = 0; y < ph; y++) {
       const rowShift = Math.round(Math.sin(y * 0.25 + t * 3) * intensity * 14);
@@ -646,7 +830,7 @@ function processHandPatchPixels(minX, minY, pw, ph) {
         dst[di + 3] = 255;
       }
     }
-  } else if (handMode === 'chrome') {
+  } else if (filterKey === 'chrome') {
     const sweep = (Math.sin(t * 2) * 0.5 + 0.5);
     for (let y = 0; y < ph; y++) {
       for (let x = 0; x < pw; x++) {
@@ -662,8 +846,7 @@ function processHandPatchPixels(minX, minY, pw, ph) {
         dst[di + 3] = 255;
       }
     }
-  } else if (handMode === 'bw') {
-    // gritty black & white with subtle scanline grain
+  } else if (filterKey === 'bw') {
     for (let y = 0; y < ph; y++) {
       const grain = (Math.sin(y * 1.7 + t * 5) * 0.5 + 0.5) * intensity * 20;
       for (let x = 0; x < pw; x++) {
@@ -674,7 +857,7 @@ function processHandPatchPixels(minX, minY, pw, ph) {
         dst[di] = v; dst[di + 1] = v; dst[di + 2] = v; dst[di + 3] = 255;
       }
     }
-  } else {
+  } else if (filterKey === 'scan') {
     const strips = 10 + Math.round(intensity * 20);
     const stripH = Math.max(1, Math.floor(ph / strips));
     for (let s = 0; s < strips; s++) {
@@ -690,9 +873,52 @@ function processHandPatchPixels(minX, minY, pw, ph) {
         }
       }
     }
+  } else if (filterKey === 'dual-tone') {
+    for (let i = 0; i < pw * ph; i++) {
+      const o = i * 4;
+      const lum = src[o] * 0.299 + src[o + 1] * 0.587 + src[o + 2] * 0.114;
+      if (lum > 127) { dst[o] = 255; dst[o + 1] = 165; dst[o + 2] = 0; }
+      else { dst[o] = 255; dst[o + 1] = 20; dst[o + 2] = 147; }
+      dst[o + 3] = 255;
+    }
+  } else if (filterKey === 'glitch') {
+    const shift = Math.max(3, Math.round(pw * 0.05));
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const rx = Math.min(pw - 1, x + shift);
+        const bx = Math.max(0, x - shift);
+        const ri = (y * pw + rx) * 4, bi = (y * pw + bx) * 4;
+        dst[di] = src[ri]; dst[di + 1] = src[di + 1]; dst[di + 2] = src[bi + 2]; dst[di + 3] = 255;
+      }
+    }
+  } else { // neon
+    const lum = new Float32Array(pw * ph);
+    for (let i = 0; i < pw * ph; i++) {
+      const o = i * 4;
+      lum[i] = src[o] * 0.299 + src[o + 1] * 0.587 + src[o + 2] * 0.114;
+    }
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const i = y * pw + x, o = i * 4;
+        if (x > 0 && x < pw - 1 && y > 0 && y < ph - 1) {
+          const gx = lum[i + 1] - lum[i - 1];
+          const gy = lum[i + pw] - lum[i - pw];
+          const mag = Math.sqrt(gx * gx + gy * gy);
+          if (mag > 35) { dst[o] = 80; dst[o + 1] = 255; dst[o + 2] = 255; }
+          else { dst[o] = 0; dst[o + 1] = 0; dst[o + 2] = 0; }
+        } else { dst[o] = 0; dst[o + 1] = 0; dst[o + 2] = 0; }
+        dst[o + 3] = 255;
+      }
+    }
   }
   patchCtx.putImageData(out, 0, 0);
 }
+
+/* ---------- 2-hand portal: thumb+index of each hand form a quad showing a cycling filter,
+   ported & extended from python-handtrack (now shares the full 15-filter set) ---------- */
+let portalFilterIndex = 0;
+let portalGestureLatched = false;
 
 function polygonCentroid(pts) {
   let x = 0, y = 0;
@@ -707,7 +933,65 @@ function sortPolygonPoints(pts) {
   return [...pts].sort((a, b) => Math.atan2(a.y - c.y, a.x - c.x) - Math.atan2(b.y - c.y, b.x - c.x));
 }
 
-function drawHandGlitchPolygon(rawPoints) {
+function drawPortal(cornersRaw) {
+  const pts = sortPolygonPoints(cornersRaw);
+  const pad = 6;
+  let minX = Math.max(0, Math.floor(Math.min(...pts.map(p => p.x)) - pad));
+  let minY = Math.max(0, Math.floor(Math.min(...pts.map(p => p.y)) - pad));
+  let maxX = Math.min(W, Math.ceil(Math.max(...pts.map(p => p.x)) + pad));
+  let maxY = Math.min(H, Math.ceil(Math.max(...pts.map(p => p.y)) + pad));
+  const pw = maxX - minX, ph = maxY - minY;
+  if (pw <= 6 || ph <= 6) return;
+
+  const filterKey = ALL_FILTERS[portalFilterIndex].key;
+  applyStyleFilterPixels(minX, minY, pw, ph, filterKey);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(patchCanvas, 0, 0, pw, ph, minX, minY, pw, ph);
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(0,255,255,0.85)';
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    for (let k = 0; k < 5; k++) {
+      const f = Math.random();
+      const px = a.x * f + b.x * (1 - f) + (Math.random() * 16 - 8);
+      const py = a.y * f + b.y * (1 - f) + (Math.random() * 16 - 8);
+      ctx.beginPath();
+      ctx.arc(px, py, 1 + Math.random() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const top = pts.reduce((m, p) => (p.y < m.y ? p : m), pts[0]);
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'center';
+  const label = 'PORTAL: ' + filterLabel(filterKey).toUpperCase();
+  const lw = ctx.measureText(label).width + 12;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(top.x - lw / 2, top.y - 30, lw, 20);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(label, top.x, top.y - 15);
+  ctx.restore();
+}
+
+/* ---------- 1-hand triangle patch (thumb+index+middle extended): each hand keeps its own
+   current filter and cycles it independently the moment ITS OWN index+middle tips touch ---------- */
+function drawHandGlitchPolygon(rawPoints, filterKey) {
   if (rawPoints.length < 3) return;
   const pts = sortPolygonPoints(rawPoints);
   const pad = parseInt(handPadding.value, 10) * 0.5;
@@ -723,7 +1007,7 @@ function drawHandGlitchPolygon(rawPoints) {
   const pw = maxX - minX, ph = maxY - minY;
   if (pw <= 4 || ph <= 4) return;
 
-  processHandPatchPixels(minX, minY, pw, ph);
+  applyStyleFilterPixels(minX, minY, pw, ph, filterKey);
 
   ctx.save();
   ctx.beginPath();
@@ -731,7 +1015,47 @@ function drawHandGlitchPolygon(rawPoints) {
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
   ctx.clip();
-  ctx.drawImage(patchCanvas, minX, minY, pw, ph, minX, minY, pw, ph);
+  ctx.drawImage(patchCanvas, 0, 0, pw, ph, minX, minY, pw, ph);
+  ctx.restore();
+}
+
+/* ---------- 2-hand grid (both hands fully open): a row of white-bordered boxes with
+   alternating tall/short heights spanning the space between the two hands, each box
+   showing a different filter from the full set at once ---------- */
+function drawEffectGrid(ptsA, ptsB) {
+  const allPts = [...ptsA, ...ptsB];
+  const minX = Math.min(...allPts.map(p => p.x));
+  const maxX = Math.max(...allPts.map(p => p.x));
+  const minY = Math.min(...allPts.map(p => p.y));
+  const maxY = Math.max(...allPts.map(p => p.y));
+  const boxW = maxX - minX, boxH = maxY - minY;
+  if (boxW < 60 || boxH < 40) return;
+
+  const cols = Math.max(3, Math.min(9, Math.round(boxW / 65)));
+  const colW = boxW / cols;
+  const tallH = boxH;
+  const shortH = boxH * 0.6;
+
+  ctx.save();
+  for (let c = 0; c < cols; c++) {
+    const isTall = c % 2 === 0;
+    const cellH = isTall ? tallH : shortH;
+    const cellY = minY + (boxH - cellH) / 2; // shorter cells float centered, like a skyline
+    const cellX = minX + c * colW;
+    const filterKey = ALL_FILTERS[c % ALL_FILTERS.length].key;
+
+    const cx = Math.max(0, Math.floor(cellX));
+    const cy = Math.max(0, Math.floor(cellY));
+    const cw = Math.min(W - cx, Math.ceil(colW));
+    const ch = Math.min(H - cy, Math.ceil(cellH));
+    if (cw <= 2 || ch <= 2) continue;
+
+    applyStyleFilterPixels(cx, cy, cw, ch, filterKey);
+    ctx.drawImage(patchCanvas, 0, 0, cw, ch, cx, cy, cw, ch);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx + 1, cy + 1, cw - 2, ch - 2);
+  }
   ctx.restore();
 }
 
@@ -773,8 +1097,8 @@ function drawHandEffects() {
   if (lastHandLandmarks.length === 0) {
     smoothedHandsPts = [];
     gestureHistory = [[], []];
-    tubeTwistPrevA = null;
-    tubeTwistPrevB = null;
+    portalGestureLatched = false;
+    triSwitchLatched = [false, false];
     return;
   }
 
@@ -785,33 +1109,66 @@ function drawHandEffects() {
   const gestures = handsPts.map((pts, i) => stableGesture(getHandGesture(pts), i));
 
   // live debug label so you can see what's being detected while you tune your pose
-  handsPts.forEach((pts, i) => drawGestureLabel(pts[0], gestures[i], pts));
+  handsPts.forEach((pts, i) => drawGestureLabel(pts[0], gestures[i], pts, handFilterIndex[i]));
 
-  // 1 or 2 hands, each independently: thumb + index + middle extended -> per-hand polygon
-  // uses wrist + all three fingertips, so it naturally forms a quad that hugs the hand shape
+  // 1 or 2 hands, each independently: thumb + index + middle extended -> per-hand triangle
+  // patch, showing THAT hand's own current filter. Touching index tip to middle tip on a
+  // hand cycles that hand's filter forward - fully independent between the two hands.
   handsPts.forEach((pts, i) => {
     if (gestures[i] === 'tri') {
-      drawHandGlitchPolygon([pts[4], pts[8], pts[12]]);
+      const switchThresh = W * 0.03;
+      const touching = dist(pts[8], pts[12]) < switchThresh;
+      if (touching) {
+        if (!triSwitchLatched[i]) {
+          handFilterIndex[i] = (handFilterIndex[i] + 1) % ALL_FILTERS.length;
+          showToast('Tangan ' + (i + 1) + ': ' + ALL_FILTERS[handFilterIndex[i]].label);
+          triSwitchLatched[i] = true;
+        }
+      } else {
+        triSwitchLatched[i] = false;
+      }
+      drawHandGlitchPolygon([pts[4], pts[8], pts[12]], ALL_FILTERS[handFilterIndex[i]].key);
+    } else {
+      triSwitchLatched[i] = false;
     }
   });
 
-  // exactly 2 hands, both doing thumb+index only (finger-gun) -> quad ribbon between both hands' tips
-  if (handsPts.length === 2 && gestures[0] === 'pinch2' && gestures[1] === 'pinch2') {
-    const thumbA = handsPts[0][4], idxA = handsPts[0][8];
-    const thumbB = handsPts[1][4], idxB = handsPts[1][8];
-    drawHandGlitchPolygon([thumbA, idxA, idxB, thumbB]);
-  }
-
-  // exactly 2 hands, both fully open (all 5 fingers extended) -> checkered twisting tube
+  // exactly 2 hands, both fully open (all 5 fingers extended) -> row of white-bordered boxes
+  // with alternating tall/short heights, each showing a different filter at once
   if (handsPts.length === 2 && gestures[0] === 'all' && gestures[1] === 'all') {
-    drawGlitchTube(handsPts[0], handsPts[1]);
+    drawEffectGrid(handsPts[0], handsPts[1]);
+    portalGestureLatched = false;
   } else {
-    tubeTwistPrevA = null;
-    tubeTwistPrevB = null;
+    // exactly 2 hands otherwise -> thumb+index of each hand forms a portal quad showing a
+    // stylized filter; bringing the two index tips together (or thumb+pinky on either hand)
+    // cycles to the next filter, ported from the python-handtrack reference
+    if (handsPts.length === 2) {
+      const thumbA = handsPts[0][4], idxA = handsPts[0][8], pinkyA = handsPts[0][20];
+      const thumbB = handsPts[1][4], idxB = handsPts[1][8], pinkyB = handsPts[1][20];
+
+      const switchThresh = W * 0.035;
+      const wantsSwitch = dist(idxA, idxB) < switchThresh ||
+        dist(thumbA, pinkyA) < switchThresh ||
+        dist(thumbB, pinkyB) < switchThresh;
+
+      if (wantsSwitch) {
+        if (!portalGestureLatched) {
+          portalFilterIndex = (portalFilterIndex + 1) % ALL_FILTERS.length;
+          showToast('Portal: ' + ALL_FILTERS[portalFilterIndex].label);
+          portalGestureLatched = true;
+        }
+      } else {
+        portalGestureLatched = false;
+      }
+
+      drawPortal([thumbA, idxA, idxB, thumbB]);
+    } else {
+      portalGestureLatched = false;
+    }
   }
 }
 
-function drawGestureLabel(wristPt, gesture, pts) {
+function drawGestureLabel(wristPt, gesture, pts, filterIdx) {
   const labels = { tri: 'TRI', pinch2: 'PINCH2', all: 'ALL', none: '—' };
   const colors = { tri: '#7ee08a', pinch2: '#1ec8c8', all: '#f0c419', none: 'rgba(255,255,255,0.5)' };
   const f = getExtendedPattern(pts);
@@ -853,87 +1210,6 @@ function getHandGesture(pts) {
   if (f.thumb && f.index && f.middle && !f.ring && !f.pinky) return 'tri';
   if (f.thumb && f.index && !f.middle && !f.ring && !f.pinky) return 'pinch2';
   return 'none';
-}
-
-/* ---------- checkered twisting tube (2-hand, all-fingers open): squares show the real active filter, not flat colors ---------- */
-let tubeTwistPhase = 0;
-let tubeTwistPrevA = null;
-let tubeTwistPrevB = null;
-const FINGERTIP_IDS = [4, 8, 12, 16, 20];
-const tubeAltCanvas = document.createElement('canvas');
-const tubeAltCtx = tubeAltCanvas.getContext('2d', { willReadFrequently: true });
-
-function drawGlitchTube(ptsA, ptsB) {
-  const tipsA = FINGERTIP_IDS.map(i => ptsA[i]);
-  const tipsB = FINGERTIP_IDS.map(i => ptsB[i]);
-  const allTips = [...tipsA, ...tipsB];
-
-  // centroids used only to steer the checker twist direction - not drawn as vertices
-  const centroidA = polygonCentroid(tipsA);
-  const centroidB = polygonCentroid(tipsB);
-
-  // accumulate twist based on how much the fingertip clusters have actually moved this frame
-  if (tubeTwistPrevA && tubeTwistPrevB) {
-    const moved = dist(centroidA, tubeTwistPrevA) + dist(centroidB, tubeTwistPrevB);
-    tubeTwistPhase += moved * 0.05;
-  }
-  tubeTwistPrevA = centroidA;
-  tubeTwistPrevB = centroidB;
-
-  // the visible shape is literally the polygon connecting all 10 fingertips - every vertex is a real fingertip
-  const sorted = sortPolygonPoints(allTips);
-
-  const minX = Math.max(0, Math.min(...allTips.map(p => p.x)) - 8);
-  const minY = Math.max(0, Math.min(...allTips.map(p => p.y)) - 8);
-  const maxX = Math.min(W, Math.max(...allTips.map(p => p.x)) + 8);
-  const maxY = Math.min(H, Math.max(...allTips.map(p => p.y)) + 8);
-  const pw = maxX - minX, ph = maxY - minY;
-  if (pw <= 4 || ph <= 4) return;
-
-  // process the whole area once through the currently active filter (prism/chrome/scan/bw)
-  processHandPatchPixels(minX, minY, pw, ph); // fills patchCanvas
-
-  // build a contrasted variant of the same filtered content, for checker contrast
-  tubeAltCanvas.width = pw;
-  tubeAltCanvas.height = ph;
-  tubeAltCtx.clearRect(0, 0, pw, ph);
-  tubeAltCtx.filter = 'invert(1) contrast(1.15) brightness(1.05)';
-  tubeAltCtx.drawImage(patchCanvas, 0, 0);
-  tubeAltCtx.filter = 'none';
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(sorted[0].x, sorted[0].y);
-  for (let i = 1; i < sorted.length; i++) ctx.lineTo(sorted[i].x, sorted[i].y);
-  ctx.closePath();
-  ctx.clip();
-
-  // axis-aligned checker grid; the phase shift (driven by real hand movement) makes the
-  // checker boundary sweep across the shape, reading as a twisting quilted pattern
-  const cell = Math.max(14, Math.min(pw, ph) * 0.14);
-  const cols = Math.ceil(pw / cell), rows = Math.ceil(ph / cell);
-  const phaseShift = Math.floor(tubeTwistPhase / (Math.PI / 2));
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) {
-      const cw = Math.min(cell, pw - i * cell);
-      const chh = Math.min(cell, ph - j * cell);
-      const parity = (i + j + phaseShift) % 2;
-      const srcCanvas = parity === 0 ? patchCanvas : tubeAltCanvas;
-      ctx.drawImage(srcCanvas, i * cell, j * cell, cw, chh, minX + i * cell, minY + j * cell, cw, chh);
-    }
-  }
-  ctx.restore();
-
-  // outline tracing the actual fingertip polygon
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(sorted[0].x, sorted[0].y);
-  for (let i = 1; i < sorted.length; i++) ctx.lineTo(sorted[i].x, sorted[i].y);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.restore();
 }
 
 /* ---------- main render loop ---------- */
