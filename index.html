@@ -386,7 +386,6 @@
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <script>
@@ -422,7 +421,7 @@ let handMode = 'bw';
 let flashOn = false;
 let currentMode = 'foto';
 let stream = null;
-let camera = null;
+let detectionRunning = false;
 let faceDetection = null;
 let handsDetector = null;
 let lastDetections = [];
@@ -539,7 +538,7 @@ flashBtn.addEventListener('click', async () => {
 /* ---------- close ---------- */
 closeBtn.addEventListener('click', () => {
   if (stream) stream.getTracks().forEach(t => t.stop());
-  if (camera) camera.stop();
+  detectionRunning = false;
   startOverlay.style.display = 'flex';
   statusPill.textContent = 'Kamera off';
 });
@@ -550,19 +549,64 @@ const heroMaskImg = new Image();
 heroMaskImg.src = 'data:image/svg+xml,' + encodeURIComponent(heroMaskSVG);
 const MASK_ASPECT = 455.7 / 318.1;
 
+// smoothing state so the mask doesn't jitter frame-to-frame while still tracking in real time
+let maskSmooth = null; // {x,y,angle,w}
+
 function drawFaceMask(det) {
   if (!heroMaskImg.complete || heroMaskImg.naturalWidth === 0) return;
   const box = det.boundingBox;
-  const center = mapNormToCanvas(box.xCenter, box.yCenter, mirrored);
   const vw = video.videoWidth || W, vh = video.videoHeight || H;
   const scale = Math.max(W / vw, H / vh);
   const bw = box.width * vw * scale;
-
-  // drawn upright, no rotation - keeps eyes reliably at the top and mouth area at the bottom
   const sizePct = parseInt(maskScale.value, 10) / 100;
-  const maskW = bw * sizePct;
-  const maskH = maskW * MASK_ASPECT;
-  ctx.drawImage(heroMaskImg, center.x - maskW / 2, center.y - maskH / 2, maskW, maskH);
+
+  // fallback: plain box center, no rotation, used only if landmarks are missing
+  let anchor = mapNormToCanvas(box.xCenter, box.yCenter, mirrored);
+  let angle = 0;
+  let maskW = bw * sizePct;
+
+  const lm = det.landmarks;
+  if (lm && lm.length >= 4) {
+    // face_detection landmark order: 0 rightEye, 1 leftEye, 2 noseTip, 3 mouthCenter
+    const eyeR = mapNormToCanvas(lm[0].x, lm[0].y, mirrored);
+    const eyeL = mapNormToCanvas(lm[1].x, lm[1].y, mirrored);
+    const nose = mapNormToCanvas(lm[2].x, lm[2].y, mirrored);
+    const mouth = mapNormToCanvas(lm[3].x, lm[3].y, mirrored);
+
+    // roll angle straight from the eye line - this is what makes the mask tilt/turn with the head
+    angle = Math.atan2(eyeL.y - eyeR.y, eyeL.x - eyeR.x);
+
+    // eye-to-eye distance tracks real face width & perspective (shrinks when the head turns/tilts
+    // away) far better than the axis-aligned detection box, so proportions follow the actual face
+    const eyeDist = dist(eyeR, eyeL);
+    maskW = eyeDist * sizePct * 2.75;
+
+    // anchor along the eye-midpoint -> mouth axis (not just eye line) so the mask hugs the whole
+    // face - forehead through chin - and rotates as one rigid piece stuck to the head
+    const eyeMid = { x: (eyeR.x + eyeL.x) / 2, y: (eyeR.y + eyeL.y) / 2 };
+    const down = { x: mouth.x - eyeMid.x, y: mouth.y - eyeMid.y };
+    anchor = { x: eyeMid.x + down.x * 0.55, y: eyeMid.y + down.y * 0.55 };
+  }
+
+  // light smoothing keeps the stick-on feel steady instead of visibly shaking each frame
+  if (!maskSmooth) maskSmooth = { x: anchor.x, y: anchor.y, angle, w: maskW };
+  const smoothT = 0.55;
+  maskSmooth.x += (anchor.x - maskSmooth.x) * smoothT;
+  maskSmooth.y += (anchor.y - maskSmooth.y) * smoothT;
+  maskSmooth.w += (maskW - maskSmooth.w) * smoothT;
+  let dAngle = angle - maskSmooth.angle;
+  while (dAngle > Math.PI) dAngle -= Math.PI * 2;
+  while (dAngle < -Math.PI) dAngle += Math.PI * 2;
+  maskSmooth.angle += dAngle * smoothT;
+
+  const mW = maskSmooth.w;
+  const mH = mW * MASK_ASPECT;
+
+  ctx.save();
+  ctx.translate(maskSmooth.x, maskSmooth.y);
+  ctx.rotate(maskSmooth.angle);
+  ctx.drawImage(heroMaskImg, -mW / 2, -mH / 2, mW, mH);
+  ctx.restore();
 }
 
 /* ---------- hand glitch effect: flexible polygon anchored to fingertips ---------- */
@@ -1014,12 +1058,30 @@ flipBtn.addEventListener('click', async () => {
   await startCamera(true);
 });
 
+/* ---------- manual detection loop ----------
+   Driven directly off our own video element/stream (no separate helper re-requesting
+   getUserMedia at a fixed 480x640), so the feed always keeps its native resolution/FOV
+   instead of getting silently swapped for a cropped, zoomed-in stream. */
+async function detectionLoop() {
+  if (!detectionRunning) return;
+  if (video.readyState >= 2) {
+    await faceDetection.send({ image: video });
+    await handsDetector.send({ image: video });
+  }
+  if (!detectionRunning) return;
+  if (video.requestVideoFrameCallback) {
+    video.requestVideoFrameCallback(detectionLoop);
+  } else {
+    requestAnimationFrame(detectionLoop);
+  }
+}
+
 /* ---------- start camera ---------- */
 async function startCamera(isSwitch) {
   try {
     if (!isSwitch) startBtn.textContent = 'Memuat...';
+    detectionRunning = false;
     if (stream) stream.getTracks().forEach(t => t.stop());
-    if (camera) camera.stop();
 
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode },
@@ -1033,15 +1095,8 @@ async function startCamera(isSwitch) {
     if (!faceDetection) setupFaceDetection();
     if (!handsDetector) setupHandsDetection();
 
-    camera = new Camera(video, {
-      onFrame: async () => {
-        await faceDetection.send({ image: video });
-        await handsDetector.send({ image: video });
-      },
-      width: 480,
-      height: 640
-    });
-    camera.start();
+    detectionRunning = true;
+    detectionLoop();
 
     if (!isSwitch) {
       statusPill.textContent = 'Blur wajah aktif';
