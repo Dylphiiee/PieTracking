@@ -421,7 +421,7 @@ const toast = document.getElementById('toast');
 let W = 480, H = 640;
 let facingMode = 'user';
 let mirrored = true;
-let blurEnabled = true;
+let faceEffectMode = 'blur'; // 'blur' | 'mask' | 'off'
 let handEnabled = true;
 let handMode = 'bw';
 let flashOn = false;
@@ -509,12 +509,14 @@ sheetBackdrop.addEventListener('click', () => {
   sheetBackdrop.classList.remove('show');
 });
 
-/* ---------- blur toggle ---------- */
+/* ---------- face effect toggle: cycles blur -> mask -> off ---------- */
+const faceEffectLabels = { blur: 'Blur wajah aktif', mask: 'Topeng hero aktif', off: 'Efek wajah nonaktif' };
 blurToggleBtn.addEventListener('click', () => {
-  blurEnabled = !blurEnabled;
-  blurToggleBtn.classList.toggle('active', blurEnabled);
-  statusPill.textContent = blurEnabled ? 'Blur wajah aktif' : 'Blur wajah nonaktif';
-  statusPill.classList.toggle('blur-on', blurEnabled);
+  faceEffectMode = faceEffectMode === 'blur' ? 'mask' : faceEffectMode === 'mask' ? 'off' : 'blur';
+  blurToggleBtn.classList.toggle('active', faceEffectMode !== 'off');
+  statusPill.textContent = faceEffectLabels[faceEffectMode];
+  statusPill.classList.toggle('blur-on', faceEffectMode !== 'off');
+  showToast(faceEffectLabels[faceEffectMode]);
 });
 blurToggleBtn.classList.add('active');
 
@@ -604,6 +606,53 @@ function drawFaceBlur(det) {
   faceLayerCtx.globalCompositeOperation = 'source-over';
 
   ctx.drawImage(faceLayerCanvas, minX, minY);
+}
+
+/* ---------- hero-style face mask (generic webbed design, not a copy of any specific IP) ---------- */
+const heroMaskSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300">
+  <path d="M120 8 C60 8 20 60 20 140 C20 220 60 292 120 292 C180 292 220 220 220 140 C220 60 180 8 120 8 Z" fill="#0a0a0a"/>
+  <g stroke="#c81e2c" stroke-width="2.4" fill="none" opacity="0.85">
+    <line x1="120" y1="8" x2="120" y2="292"/>
+    <line x1="20" y1="140" x2="220" y2="140"/>
+    <line x1="45" y1="45" x2="195" y2="235"/>
+    <line x1="195" y1="45" x2="45" y2="235"/>
+    <path d="M20 140 Q120 100 220 140"/>
+    <path d="M20 140 Q120 180 220 140"/>
+    <path d="M60 40 Q120 90 60 240"/>
+    <path d="M180 40 Q120 90 180 240"/>
+    <path d="M40 90 Q120 140 40 190"/>
+    <path d="M200 90 Q120 140 200 190"/>
+  </g>
+  <path d="M55 110 Q80 85 115 100 Q125 130 100 150 Q65 150 55 110 Z" fill="#fff" stroke="#c81e2c" stroke-width="4"/>
+  <path d="M185 110 Q160 85 125 100 Q115 130 140 150 Q175 150 185 110 Z" fill="#fff" stroke="#c81e2c" stroke-width="4"/>
+</svg>`;
+const heroMaskImg = new Image();
+heroMaskImg.src = 'data:image/svg+xml,' + encodeURIComponent(heroMaskSVG);
+
+function drawFaceMask(det) {
+  if (!heroMaskImg.complete || heroMaskImg.naturalWidth === 0) return;
+  const box = det.boundingBox;
+  const center = mapNormToCanvas(box.xCenter, box.yCenter, mirrored);
+  const vw = video.videoWidth || W, vh = video.videoHeight || H;
+  const scale = Math.max(W / vw, H / vh);
+  const bw = box.width * vw * scale;
+
+  // use eye keypoints (if available) to rotate the mask with head tilt
+  let angle = 0;
+  const kps = det.landmarks || det.keypoints;
+  if (kps && kps.length >= 2) {
+    const eyeR = mapNormToCanvas(kps[0].x, kps[0].y, mirrored);
+    const eyeL = mapNormToCanvas(kps[1].x, kps[1].y, mirrored);
+    angle = Math.atan2(eyeL.y - eyeR.y, eyeL.x - eyeR.x);
+  }
+
+  const maskW = bw * 1.35;
+  const maskH = maskW * (300 / 240);
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(angle);
+  ctx.drawImage(heroMaskImg, -maskW / 2, -maskH / 2, maskW, maskH);
+  ctx.restore();
 }
 
 /* ---------- hand glitch effect: flexible polygon anchored to fingertips ---------- */
@@ -788,7 +837,7 @@ function drawHandEffects() {
   // uses wrist + all three fingertips, so it naturally forms a quad that hugs the hand shape
   handsPts.forEach((pts, i) => {
     if (gestures[i] === 'tri') {
-      drawHandGlitchPolygon([pts[0], pts[4], pts[8], pts[12]]);
+      drawHandGlitchPolygon([pts[4], pts[8], pts[12]]);
     }
   });
 
@@ -852,63 +901,84 @@ function getHandGesture(pts) {
   return 'none';
 }
 
-/* ---------- checkered twisting tube (2-hand, all-fingers pinch) ---------- */
+/* ---------- checkered twisting tube (2-hand, all-fingers open): squares show the real active filter, not flat colors ---------- */
 let tubeTwistPhase = 0;
 let tubeTwistPrevA = null;
 let tubeTwistPrevB = null;
-const tubeColors = ['#f0c419', '#1a1a1a', '#d94d3a', '#1ec8c8'];
-
-function pinchCentroid(pts) {
-  const ids = [4, 8, 12, 16, 20];
-  let x = 0, y = 0;
-  ids.forEach(i => { x += pts[i].x; y += pts[i].y; });
-  return { x: x / ids.length, y: y / ids.length };
-}
+const FINGERTIP_IDS = [4, 8, 12, 16, 20];
+const tubeAltCanvas = document.createElement('canvas');
+const tubeAltCtx = tubeAltCanvas.getContext('2d', { willReadFrequently: true });
 
 function drawGlitchTube(ptsA, ptsB) {
-  const A = pinchCentroid(ptsA);
-  const B = pinchCentroid(ptsB);
-  const scaleA = dist(ptsA[0], ptsA[9]);
-  const scaleB = dist(ptsB[0], ptsB[9]);
-  const tubeWidth = ((scaleA + scaleB) / 2) * 1.1;
+  const tipsA = FINGERTIP_IDS.map(i => ptsA[i]);
+  const tipsB = FINGERTIP_IDS.map(i => ptsB[i]);
+  const allTips = [...tipsA, ...tipsB];
 
-  const dx = B.x - A.x, dy = B.y - A.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 12) return;
-  const angle = Math.atan2(dy, dx);
+  // centroids used only to steer the checker twist direction - not drawn as vertices
+  const centroidA = polygonCentroid(tipsA);
+  const centroidB = polygonCentroid(tipsB);
 
-  // accumulate twist based on how much the pinch points have actually moved this frame
+  // accumulate twist based on how much the fingertip clusters have actually moved this frame
   if (tubeTwistPrevA && tubeTwistPrevB) {
-    const moved = dist(A, tubeTwistPrevA) + dist(B, tubeTwistPrevB);
-    tubeTwistPhase += moved * 0.03;
+    const moved = dist(centroidA, tubeTwistPrevA) + dist(centroidB, tubeTwistPrevB);
+    tubeTwistPhase += moved * 0.05;
   }
-  tubeTwistPrevA = A;
-  tubeTwistPrevB = B;
+  tubeTwistPrevA = centroidA;
+  tubeTwistPrevB = centroidB;
 
-  const segLen = Math.max(10, tubeWidth * 0.55);
-  const segments = Math.max(4, Math.floor(len / segLen));
-  const actualSegLen = len / segments;
+  // the visible shape is literally the polygon connecting all 10 fingertips - every vertex is a real fingertip
+  const sorted = sortPolygonPoints(allTips);
+
+  const minX = Math.max(0, Math.min(...allTips.map(p => p.x)) - 8);
+  const minY = Math.max(0, Math.min(...allTips.map(p => p.y)) - 8);
+  const maxX = Math.min(W, Math.max(...allTips.map(p => p.x)) + 8);
+  const maxY = Math.min(H, Math.max(...allTips.map(p => p.y)) + 8);
+  const pw = maxX - minX, ph = maxY - minY;
+  if (pw <= 4 || ph <= 4) return;
+
+  // process the whole area once through the currently active filter (prism/chrome/scan/bw)
+  processHandPatchPixels(minX, minY, pw, ph); // fills patchCanvas
+
+  // build a contrasted variant of the same filtered content, for checker contrast
+  tubeAltCanvas.width = pw;
+  tubeAltCanvas.height = ph;
+  tubeAltCtx.clearRect(0, 0, pw, ph);
+  tubeAltCtx.filter = 'invert(1) contrast(1.15) brightness(1.05)';
+  tubeAltCtx.drawImage(patchCanvas, 0, 0);
+  tubeAltCtx.filter = 'none';
 
   ctx.save();
-  ctx.translate(A.x, A.y);
-  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(sorted[0].x, sorted[0].y);
+  for (let i = 1; i < sorted.length; i++) ctx.lineTo(sorted[i].x, sorted[i].y);
+  ctx.closePath();
+  ctx.clip();
 
-  for (let i = 0; i < segments; i++) {
-    const localX = i * actualSegLen + actualSegLen / 2;
-    const twist = tubeTwistPhase + i * 0.5;
-    const colorIndex = (i + Math.floor(twist / (Math.PI / 2))) % tubeColors.length;
-    const squeeze = 0.65 + 0.35 * Math.abs(Math.cos(twist));
-
-    ctx.save();
-    ctx.translate(localX, 0);
-    ctx.fillStyle = tubeColors[((colorIndex % tubeColors.length) + tubeColors.length) % tubeColors.length];
-    ctx.fillRect(-actualSegLen / 2, (-tubeWidth / 2) * squeeze, actualSegLen, tubeWidth * squeeze);
-    ctx.restore();
+  // axis-aligned checker grid; the phase shift (driven by real hand movement) makes the
+  // checker boundary sweep across the shape, reading as a twisting quilted pattern
+  const cell = Math.max(14, Math.min(pw, ph) * 0.14);
+  const cols = Math.ceil(pw / cell), rows = Math.ceil(ph / cell);
+  const phaseShift = Math.floor(tubeTwistPhase / (Math.PI / 2));
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const cw = Math.min(cell, pw - i * cell);
+      const chh = Math.min(cell, ph - j * cell);
+      const parity = (i + j + phaseShift) % 2;
+      const srcCanvas = parity === 0 ? patchCanvas : tubeAltCanvas;
+      ctx.drawImage(srcCanvas, i * cell, j * cell, cw, chh, minX + i * cell, minY + j * cell, cw, chh);
+    }
   }
+  ctx.restore();
 
+  // outline tracing the actual fingertip polygon
+  ctx.save();
   ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(0, -tubeWidth / 2, len, tubeWidth);
+  ctx.beginPath();
+  ctx.moveTo(sorted[0].x, sorted[0].y);
+  for (let i = 1; i < sorted.length; i++) ctx.lineTo(sorted[i].x, sorted[i].y);
+  ctx.closePath();
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -927,8 +997,10 @@ function renderFrame() {
   ctx.drawImage(off, 0, 0);
   ctx.restore();
 
-  if (blurEnabled) {
+  if (faceEffectMode === 'blur') {
     for (const det of lastDetections) drawFaceBlur(det);
+  } else if (faceEffectMode === 'mask') {
+    for (const det of lastDetections) drawFaceMask(det);
   }
   if (handEnabled) {
     drawHandEffects();
