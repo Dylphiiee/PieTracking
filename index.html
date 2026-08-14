@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Kamera // Dylphiiee</title>
+<style>
+  :root{
+    --cream:#0a0a0a;
+    --cream-dark:#141414;
+    --ink:#f2ece0;
+    --muted:#8a8072;
+    --accent:#f0c419;
+    --shutter-ring:#f0c419;
+    --danger:#d94d3a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    background:#000;
+    font-family:-apple-system, 'Segoe UI', Roboto, sans-serif;
+    overflow:hidden;
+  }
+  .app{
+    position:relative;
+    width:100%;
+    height:100vh;
+    height:100dvh;
+    max-width:520px;
+    margin:0 auto;
+    background:var(--cream);
+    display:flex;
+    flex-direction:column;
+  }
+
+  @media (orientation: landscape){
+    .app{
+      max-width:100%;
+      display:grid;
+      grid-template-columns: 1fr 180px;
+      grid-template-rows: auto 1fr auto;
+      grid-template-areas:
+        "view top"
+        "view modes"
+        "view ctrl";
+    }
+    .topbar{ grid-area:top; flex-direction:column; gap:16px; padding:16px 10px; }
+    .viewfinder{ grid-area:view; }
+    .modes{ grid-area:modes; flex-direction:column; gap:18px; justify-content:center; padding:10px; }
+    .controls{ grid-area:ctrl; flex-direction:column; gap:18px; padding:16px 10px; }
+    .side-tools{ right:auto; left:12px; bottom:12px; }
+  }
+
+  /* top bar */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 20px 10px;
+    background:var(--cream);
+    z-index:6;
+  }
+  .icon-btn{
+    background:none;border:none;
+    width:38px;height:38px;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--ink);
+    cursor:pointer;
+    border-radius:50%;
+  }
+  .icon-btn.active{ color:#c9911a; }
+  .icon-btn svg{width:22px;height:22px;}
+
+  /* viewfinder */
+  .viewfinder{
+    position:relative;
+    flex:1;
+    background:#111;
+    overflow:hidden;
+  }
+  video{ display:none; }
+  canvas{
+    width:100%;
+    height:100%;
+    display:block;
+    object-fit:cover;
+  }
+  .grid{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.28) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.28) 1px, transparent 1px);
+    background-size: 33.333% 33.333%;
+  }
+  .close-btn{
+    position:absolute;
+    top:12px; right:12px;
+    z-index:7;
+    width:34px;height:34px;
+    border-radius:50%;
+    background:rgba(20,20,20,0.35);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:18px;
+    border:none;
+    cursor:pointer;
+  }
+  .status-pill{
+    position:absolute;
+    top:12px; left:12px;
+    z-index:7;
+    background:rgba(20,20,20,0.4);
+    color:#fff;
+    font-size:10px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    padding:5px 10px;
+    border-radius:20px;
+  }
+  .status-pill.blur-on::before{
+    content:'';
+    display:inline-block;
+    width:6px;height:6px;
+    border-radius:50%;
+    background:#7ee08a;
+    margin-right:6px;
+  }
+  .side-tools{
+    position:absolute;
+    right:12px;
+    bottom:16px;
+    z-index:7;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .side-tools .icon-btn{
+    background:rgba(20,20,20,0.35);
+    color:#fff;
+    width:36px;height:36px;
+  }
+  .side-tools .icon-btn.active{ color:var(--accent); }
+
+  .start-overlay{
+    position:absolute;
+    inset:0;
+    z-index:8;
+    background:radial-gradient(circle at center, #262019 0%, #0a0806 80%);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    padding:0 40px;
+    text-align:center;
+  }
+  .start-overlay p{
+    color:#b5ab98;
+    font-size:12px;
+    line-height:1.6;
+    margin:0;
+  }
+  #startBtn{
+    background:var(--accent);
+    color:#2b2620;
+    font-weight:700;
+    font-size:13px;
+    letter-spacing:0.03em;
+    padding:13px 30px;
+    border-radius:30px;
+    border:none;
+    cursor:pointer;
+  }
+
+  /* mode tabs */
+  .modes{
+    display:flex;
+    justify-content:center;
+    gap:26px;
+    padding:14px 10px 6px;
+    background:var(--cream);
+    overflow-x:auto;
+  }
+  .mode-item{
+    background:none;
+    border:none;
+    font-size:14px;
+    color:var(--muted);
+    padding:4px 2px;
+    cursor:pointer;
+    white-space:nowrap;
+    font-weight:500;
+  }
+  .mode-item.active{
+    color:#c9911a;
+    font-weight:700;
+  }
+
+  /* bottom controls */
+  .controls{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 30px 26px;
+    background:var(--cream);
+  }
+  .thumb{
+    width:46px;height:46px;
+    border-radius:12px;
+    overflow:hidden;
+    border:none;
+    background:#1e1e1e;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+  }
+  .thumb img{ width:100%; height:100%; object-fit:cover; }
+  .shutter{
+    width:74px;height:74px;
+    border-radius:50%;
+    background:transparent;
+    border:3px solid var(--ink);
+    padding:4px;
+    cursor:pointer;
+  }
+  .shutter-inner{
+    width:100%;height:100%;
+    border-radius:50%;
+    border:3px solid var(--shutter-ring);
+    background:#fff;
+    transition:background .15s ease, border-color .15s ease;
+  }
+  .shutter.recording .shutter-inner{
+    background:var(--danger);
+    border-color:var(--danger);
+    border-radius:16px;
+  }
+  .flip-btn{
+    width:46px;height:46px;
+    border-radius:50%;
+    background:none;
+    border:none;
+    color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+  }
+  .flip-btn svg{ width:24px; height:24px; }
+
+  /* settings sheet */
+  .sheet-backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(0,0,0,0.4);
+    z-index:9;
+    display:none;
+  }
+  .sheet-backdrop.show{ display:block; }
+  .sheet{
+    position:absolute;
+    left:0;right:0;bottom:0;
+    background:var(--cream);
+    border-radius:20px 20px 0 0;
+    padding:18px 22px 26px;
+    z-index:10;
+    transform:translateY(100%);
+    transition:transform .25s ease;
+  }
+  .sheet.show{ transform:translateY(0); }
+  .sheet h3{
+    margin:0 0 14px;
+    font-size:13px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--ink);
+  }
+  .sheet-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:14px;
+  }
+  .sheet-row label{
+    font-size:11px;
+    color:var(--muted);
+    min-width:90px;
+  }
+  .sheet-row input[type=range]{
+    flex:1;
+    accent-color:var(--accent);
+  }
+  .filter-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+    margin-bottom:14px;
+  }
+  .filter-chip{
+    background:#fff;
+    border:1px solid rgba(0,0,0,0.12);
+    color:var(--ink);
+    font-size:11px;
+    font-weight:600;
+    padding:6px 12px;
+    border-radius:999px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .filter-chip.active{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
+  .toast{
+    position:absolute;
+    bottom:150px;
+    left:50%;
+    transform:translateX(-50%);
+    background:rgba(20,20,20,0.85);
+    color:#fff;
+    font-size:12px;
+    padding:8px 16px;
+    border-radius:20px;
+    z-index:9;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <button class="icon-btn" id="flashBtn" title="Flash">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 21v-8H6l7-12v8h5l-7 12z"/></svg>
+    </button>
+    <button class="icon-btn" id="settingsBtn" title="Pengaturan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
+
+  <div class="viewfinder">
+    <div class="status-pill blur-on" id="statusPill">Blur wajah aktif</div>
+    <button class="close-btn" id="closeBtn">&times;</button>
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="grid"></div>
+
+    <div class="side-tools">
+      <button class="icon-btn active" id="blurToggleBtn" title="Aktif/nonaktifkan blur wajah">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <button class="icon-btn active" id="handToggleBtn" title="Aktif/nonaktifkan efek tangan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M6 14v-1a2 2 0 0 0-4 0v3a8 8 0 0 0 8 8h2a8 8 0 0 0 8-8v-3"/></svg>
+      </button>
+      <button class="icon-btn" id="portalToggleBtn" title="Mode Portal Retrolens">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+      </button>
+    </div>
+
+    <div class="start-overlay" id="startOverlay">
+      <button id="startBtn">Aktifkan Kamera</button>
+      <p>Wajah otomatis di-blur untuk privasi, dan segitiga glitch nempel di jari tanganmu — real-time lewat kamera.</p>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="modes" id="modes">
+    <button class="mode-item" data-mode="malam">Chrome</button>
+    <button class="mode-item" data-mode="potret">Prism</button>
+    <button class="mode-item active" data-mode="foto">B&amp;W</button>
+    <button class="mode-item" data-mode="video">Scan</button>
+  </div>
+
+  <div class="controls">
+    <div class="thumb" id="thumb"></div>
+    <button class="shutter" id="shutterBtn">
+      <div class="shutter-inner"></div>
+    </button>
+    <button class="flip-btn" id="flipBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v5h5"/><path d="M20 20v-5h-5"/><path d="M20 9a8 8 0 0 0-14.6-3.4M4 15a8 8 0 0 0 14.6 3.4"/></svg>
+    </button>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <div class="sheet" id="sheet">
+    <h3>Pengaturan topeng</h3>
+    <div class="sheet-row">
+      <label>Ukuran</label>
+      <input type="range" id="maskScale" min="100" max="180" value="135">
+    </div>
+    <div class="sheet-row">
+      <label>Sensitivitas</label>
+      <input type="range" id="confidence" min="30" max="90" value="55">
+    </div>
+    <h3 style="margin-top:18px;">Pengaturan tangan</h3>
+    <div class="sheet-row">
+      <label>Intensitas</label>
+      <input type="range" id="handIntensity" min="10" max="100" value="55">
+    </div>
+    <div class="sheet-row">
+      <label>Area segitiga</label>
+      <input type="range" id="handPadding" min="20" max="140" value="60">
+    </div>
+    <h3 style="margin-top:18px;">Filter tangan (15 pilihan)</h3>
+    <div class="filter-chips" id="filterChips"></div>
+    <p style="font-size:10px;color:var(--muted);margin:0;line-height:1.6;">Tap salah satu untuk langsung memakainya di gerbang portal &amp; segitiga tangan.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Tab Scan otomatis merekam video, tab lainnya mengambil foto.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Gestur tangan: <b style="color:var(--ink);">jempol+telunjuk+tengah terentang</b> = segitiga per tangan, masing-masing tangan punya filter sendiri &middot; sentuhkan <b style="color:var(--ink);">ujung telunjuk ke ujung jari tengah</b> pada tangan itu untuk ganti filter tangan tersebut saja &middot; <b style="color:var(--ink);">semua jari terentang (2 tangan)</b> = deretan kotak tinggi-pendek bergantian, tiap kotak menampilkan filter berbeda.</p>
+    <p style="font-size:10px;color:var(--muted);margin:10px 0 0;line-height:1.6;">Mode Portal (2 tangan, jempol+telunjuk): membuka gerbang berisi 1 filter. Dekatkan <b style="color:var(--ink);">ujung telunjuk kanan &amp; kiri</b>, atau <b style="color:var(--ink);">jempol ke kelingking</b> di salah satu tangan, untuk ganti filter portal.</p>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const startOverlay = document.getElementById('startOverlay');
+const startBtn = document.getElementById('startBtn');
+const statusPill = document.getElementById('statusPill');
+const closeBtn = document.getElementById('closeBtn');
+const thumb = document.getElementById('thumb');
+const shutterBtn = document.getElementById('shutterBtn');
+const flipBtn = document.getElementById('flipBtn');
+const flashBtn = document.getElementById('flashBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const sheet = document.getElementById('sheet');
+const sheetBackdrop = document.getElementById('sheetBackdrop');
+const blurToggleBtn = document.getElementById('blurToggleBtn');
+const handToggleBtn = document.getElementById('handToggleBtn');
+const portalToggleBtn = document.getElementById('portalToggleBtn');
+const maskScale = document.getElementById('maskScale');
+const confidenceSlider = document.getElementById('confidence');
+const handIntensity = document.getElementById('handIntensity');
+const handPadding = document.getElementById('handPadding');
+const modes = document.getElementById('modes');
+const toast = document.getElementById('toast');
+const filterChips = document.getElementById('filterChips');
+
+let W = 480, H = 640;
+let facingMode = 'user';
+let mirrored = true;
+let faceEffectMode = 'mask'; // 'mask' | 'off'
+let handEnabled = true;
+let handMode = 'bw';
+let handFilterIndex = [0, 0]; // independent current filter per hand slot (1-hand triangle effect)
+let triSwitchLatched = [false, false]; // edge-trigger so the switch fires once per touch, per hand
+let flashOn = false;
+let currentMode = 'foto';
+let stream = null;
+let detectionRunning = false;
+let faceDetection = null;
+let handsDetector = null;
+let lastDetections = [];
+let lastHandLandmarks = [];
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+
+const off = document.createElement('canvas');
+const offCtx = off.getContext('2d', { willReadFrequently: true });
+
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove('show'), 1600);
+}
+
+function drawVideoCover(context, vid, w, h, mirror) {
+  const vw = vid.videoWidth || w;
+  const vh = vid.videoHeight || h;
+  if (!vw || !vh) return;
+  const scale = Math.max(w / vw, h / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const dx = (w - dw) / 2, dy = (h - dh) / 2;
+  context.save();
+  if (mirror) { context.translate(w, 0); context.scale(-1, 1); }
+  context.drawImage(vid, dx, dy, dw, dh);
+  context.restore();
+}
+
+// maps a normalized (0-1) point from MediaPipe's coordinate space to the exact same
+// cover-fit transform used to draw the video, so landmarks line up with what's on screen
+function mapNormToCanvas(nx, ny, mirror) {
+  const vw = video.videoWidth || W;
+  const vh = video.videoHeight || H;
+  const scale = Math.max(W / vw, H / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const dx = (W - dw) / 2, dy = (H - dh) / 2;
+  let x = dx + nx * dw;
+  const y = dy + ny * dh;
+  if (mirror) x = W - x;
+  return { x, y };
+}
+
+function resizeCanvases() {
+  const rect = canvas.getBoundingClientRect();
+  const scale = window.devicePixelRatio || 1;
+  W = Math.round(rect.width * scale);
+  H = Math.round(rect.height * scale);
+  canvas.width = W;
+  canvas.height = H;
+  off.width = W;
+  off.height = H;
+  buildGalaxyBackground();
+}
+window.addEventListener('resize', resizeCanvases);
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvases, 250));
+
+/* ---------- mode tabs ---------- */
+// each capture mode also drives the hand-glitch color style
+const modeColorMap = { malam: 'chrome', potret: 'prism', foto: 'bw', video: 'scan' };
+modes.addEventListener('click', (e) => {
+  const btn = e.target.closest('.mode-item');
+  if (!btn) return;
+  document.querySelectorAll('.mode-item').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentMode = btn.dataset.mode;
+  handMode = modeColorMap[currentMode] || 'bw';
+  showToast('Mode: ' + btn.textContent);
+});
+
+/* ---------- settings sheet ---------- */
+settingsBtn.addEventListener('click', () => {
+  sheet.classList.add('show');
+  sheetBackdrop.classList.add('show');
+});
+sheetBackdrop.addEventListener('click', () => {
+  sheet.classList.remove('show');
+  sheetBackdrop.classList.remove('show');
+});
+
+/* ---------- face effect toggle: mask on/off ---------- */
+const faceEffectLabels = { mask: 'Topeng hero aktif', off: 'Efek wajah nonaktif' };
+blurToggleBtn.addEventListener('click', () => {
+  faceEffectMode = faceEffectMode === 'mask' ? 'off' : 'mask';
+  blurToggleBtn.classList.toggle('active', faceEffectMode !== 'off');
+  statusPill.textContent = faceEffectLabels[faceEffectMode];
+  statusPill.classList.toggle('blur-on', faceEffectMode !== 'off');
+  showToast(faceEffectLabels[faceEffectMode]);
+});
+blurToggleBtn.classList.add('active');
+
+/* ---------- hand effect toggle ---------- */
+handToggleBtn.addEventListener('click', () => {
+  handEnabled = !handEnabled;
+  handToggleBtn.classList.toggle('active', handEnabled);
+});
+handToggleBtn.classList.add('active');
+
+/* ---------- flash (cosmetic + torch if supported) ---------- */
+flashBtn.addEventListener('click', async () => {
+  flashOn = !flashOn;
+  flashBtn.classList.toggle('active', flashOn);
+  if (stream) {
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (caps.torch) {
+      try { await track.applyConstraints({ advanced: [{ torch: flashOn }] }); }
+      catch (e) { /* not supported on this device */ }
+    }
+  }
+});
+
+/* ---------- close ---------- */
+closeBtn.addEventListener('click', () => {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  detectionRunning = false;
+  startOverlay.style.display = 'flex';
+  statusPill.textContent = 'Kamera off';
+});
+
+/* ---------- face mask (user-provided spiderman.svg asset) ---------- */
+const heroMaskSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 318.1 455.7"><defs><style>.cls-1{fill:#231f20;}.cls-2{fill:#fff;stroke:#231f20;stroke-miterlimit:2.61;stroke-width:0.75px;fill-rule:evenodd;}.cls-3{fill:#ec1c24;}</style></defs><g id="katman_2" data-name="katman 2"><g id="katman_1-2" data-name="katman 1"><path class="cls-1" d="M158.9,455.7c-47.8,0-75.5-33.6-102.8-66.5-3.8-4.5-7.6-9-12.5-14.9C9.7,335.2,5.5,280.8,1.7,228.5,1,221.2.7,214.3,0,206.3,0,143.6,9,93.1,33.2,57.8,57.8,21.8,97.6,1.4,158.9,0h.3c61.3,1.7,101.1,21.8,125.7,57.8,24.2,35.3,33.2,85.9,33.2,148.2v.7h0v.7c-.7,7.6-1,14.2-1.7,21.1-3.8,52.3-8,106.6-41.9,145.8h0c-4.8,5.5-8.7,10-12.5,14.9-27.6,33-55.3,66.5-103.1,66.5Z"/><path class="cls-2" d="M194.9,239c18.7-31.9,61.3-44.7,86.2-83.4,12.5,29.1,5.9,92.8-31.2,121.5-21.7,3.5-51.2-12.1-55-38.1Z"/><path class="cls-2" d="M123.6,239c-18.7-31.9-61.3-44.7-86.2-83.4-12.5,29.1-5.9,92.8,31.2,121.5,21.8,3.5,51.2-12.1,55-38.1Z"/><path class="cls-3" d="M202,82a248.65,248.65,0,0,0,2-40.78A1.46,1.46,0,0,1,204,41c-13.64-2.47-34.55-11.7-43.15-17.86V63.59C161.91,68.79,185.46,81.92,202,82Z"/><path class="cls-3" d="M203.85,37a178.91,178.91,0,0,0-3.3-25.49,221,221,0,0,0-39.71-4.67V18.2C164.26,22.67,189.57,34.13,203.85,37Z"/><path class="cls-3" d="M192.88,129.33a425,425,0,0,0,8.63-43.47C188.3,85.55,169,77.57,160.84,70v43.3C163.69,119.3,179.71,131.45,192.88,129.33Z"/><path class="cls-3" d="M172.55,197.58q4.29-12.92,8.21-25.48c-10.09,1.23-16.28-3.26-19.92-7.93v28.08C163.45,195.4,166.88,198.41,172.55,197.58Z"/><path class="cls-3" d="M144.47,250l-2.94,1c-.31.48-.61,1-.92,1.43Z"/><path class="cls-3" d="M268.11,135.64a258.62,258.62,0,0,0,22.58-34.74c-9.31-2.47-23.19-11.5-33.5-24.14a165.94,165.94,0,0,1-10.55,34.11C248.09,116.1,261.32,130.4,268.11,135.64Z"/><path class="cls-3" d="M258,71.52c8.21,11,24,23.86,34.85,25.92.76-1.59,1.47-3.13,2.13-4.65a149.83,149.83,0,0,0-12.85-26.35c-8.65-6-17.78-16.15-24.2-24.22A99.77,99.77,0,0,1,258,71.52Z"/><path class="cls-3" d="M222.67,148.65c4.19-7,8.08-13.83,11.6-20.63q4.22-8.15,7.58-15.85c-9.3-2-28.89-13.69-36.94-22.67-2,13.62-4.95,27.59-8.55,41.92C198.66,139.56,214.35,148.94,222.67,148.65Z"/><path class="cls-3" d="M160.84,197.82v34.26c3.55-10.33,7-20.48,10.37-30.48A14.62,14.62,0,0,1,160.84,197.82Z"/><path class="cls-3" d="M242,27.12a132.58,132.58,0,0,0-25.71-11.37,238.93,238.93,0,0,0,25.58,11.32Z"/><path class="cls-3" d="M214.38,47.78c11.74,10.33,31.85,21.39,39.94,22.2a92.75,92.75,0,0,0-1.61-34.25c-3.83-1.7-8-3.33-12.3-5-10.9-4.3-23.1-9.1-35.48-17a188,188,0,0,1,3,26.78C208.65,42,210.6,44.45,214.38,47.78Z"/><path class="cls-3" d="M183.8,309.48c-3.05-7.54-6.16-15.09-9.27-22.6l-.93-2.27c-4.94-.9-8.93.67-12.76,5v30C165.68,313.9,173.93,308.79,183.8,309.48Z"/><path class="cls-3" d="M52.46,138.28a254.11,254.11,0,0,0,26.35,28.21c5.48-3.64,12.56-11.67,13-15.66-4.07-6.75-7.86-13.45-11.31-20.09q-4.06-7.8-7.36-15.2C69,122.55,59.33,133.06,52.46,138.28Z"/><path class="cls-3" d="M106,50.7C95.84,59.64,74.7,72.48,64.16,73.8a159.45,159.45,0,0,0,10.3,34.72c8-1,35.18-17,38-25.25l.11-.32a255.5,255.5,0,0,1-2.21-36.55A50.65,50.65,0,0,1,106,50.7Z"/><path class="cls-3" d="M109.86,285.55a21.93,21.93,0,0,1,3.88,7.47l7.39-8.26c3.52-3.92,7.08-7.89,10.67-12l0-.15.06-.38h-.06a8.78,8.78,0,0,0-.07-3.17,4.44,4.44,0,0,0-1.7-2.45A115.46,115.46,0,0,1,109.86,285.55Z"/><path class="cls-3" d="M171.9,280.51c-3.87-9.38-7.58-18.46-11.06-27.38v31.12A15.66,15.66,0,0,1,171.9,280.51Z"/><path class="cls-3" d="M147.19,244.91l-2,0-.47.84Z"/><path class="cls-3" d="M147.84,241l-.44-.14-.08.14Z"/><path class="cls-3" d="M265.74,45.5c1.95,2.25,4,4.46,6,6.58Q268.88,48.68,265.74,45.5Z"/><path class="cls-3" d="M39.4,279.59a148.37,148.37,0,0,1-17.85-35.51q-5.22.06-10.17.19c4.76,11.32,6.85,28.59,5.23,43C23.82,284.7,31.4,282.18,39.4,279.59Z"/><path class="cls-3" d="M185.44,313.57c-13.2-2.1-22.21,7.88-24.6,13.27v32c7.43-7.53,23.4-16.57,35.62-16.34C193.07,333,189.33,323.29,185.44,313.57Z"/><path class="cls-3" d="M197.85,346.48c-13.37-1.35-34,12.62-37,18.63v37c9.42-8.34,33.64-18.39,47.65-18.91A328,328,0,0,0,197.85,346.48Z"/><path class="cls-3" d="M103.42,47.78c5-4.36,6.76-7.26,6.81-8.53l0-1.61.42-.06a182.8,182.8,0,0,1,3-24.21c-12.53,8.11-24.87,13-35.9,17.32-4.51,1.78-8.79,3.46-12.75,5.25A93.16,93.16,0,0,0,63.6,70C71.76,69.07,91.74,58.07,103.42,47.78Z"/><path class="cls-3" d="M182,168c3.61-11.78,6.92-23.31,9.82-34.62-11.48,1-24.47-6.51-31-13.54v36.71C163.18,162.06,168.94,170.42,182,168Z"/><path class="cls-3" d="M176,199.63c1.68,3.67,3.93,6,7.1,7.27q7.47-10.18,14.53-20.18a15.21,15.21,0,0,1-7.67-2.65,19.38,19.38,0,0,1-6.43-7.67Q179.89,187.88,176,199.63Z"/><path class="cls-3" d="M238.25,312.26c3.1-2.38,8.44-5.81,14.22-6.46-.64-.59-1.31-1.16-2-1.74a109.34,109.34,0,0,1-39.1-16.57,17.05,17.05,0,0,0-4,8.7,328.63,328.63,0,0,1,21.46,26.51A37.35,37.35,0,0,1,238.25,312.26Z"/><path class="cls-3" d="M203.43,185.17c.31,2.35,2.22,5.68,4.88,8.53,8.93-7.79,18.44-15.46,28.2-24.29-5.13-3.47-10.68-9.49-13.13-14.46C217.25,164.87,210.55,174.94,203.43,185.17Z"/><path class="cls-3" d="M194.92,137c-2.83,10.84-6,21.9-9.5,33.15a17.3,17.3,0,0,0,6.69,10.67,11.46,11.46,0,0,0,8.27,1.87c7.16-10.27,13.89-20.39,20-30.34C212,151.36,200.18,144.54,194.92,137Z"/><path class="cls-3" d="M196.59,284.14q3.87,4.31,7.59,8.47a21.91,21.91,0,0,1,4-7.38,116.86,116.86,0,0,1-20-18.89A4.56,4.56,0,0,0,186,269.1a8.91,8.91,0,0,0-.06,3.16C189.55,276.3,193.09,280.24,196.59,284.14Z"/><path class="cls-3" d="M205.4,196.27a26.77,26.77,0,0,1-4.79-7.09q-7.14,10.14-14.75,20.49c-.38,2.35,0,4.05,1,5.13A193.65,193.65,0,0,1,205.4,196.27Z"/><path class="cls-3" d="M283.66,306A67.38,67.38,0,0,1,300,290.93c-7.37-2.59-15.15-5.18-23.38-7.84a126.3,126.3,0,0,1-20,21.33,95.73,95.73,0,0,1,17,20.76C275.13,319.05,278.59,312.42,283.66,306Z"/><path class="cls-3" d="M304.31,142.85l2.69-1.71a242.27,242.27,0,0,0-10.05-43c-.84,1.8-1.73,3.64-2.69,5.52A224.79,224.79,0,0,1,304.31,142.85Z"/><path class="cls-3" d="M211.82,50.7a50.43,50.43,0,0,1-3.73-3.58,262.22,262.22,0,0,1-2.42,37c4.26,8.47,30.12,23.51,37.73,24.43a157.1,157.1,0,0,0,10.35-34.72C243.25,72.58,222,59.67,211.82,50.7Z"/><path class="cls-3" d="M226,150.68c.25,4,7.81,12.53,13.41,16.08a255.17,255.17,0,0,0,26.38-28.15c-6.91-5.11-16.92-16-21.14-23.13q-3.12,7-6.92,14.33C234.15,136.69,230.22,143.64,226,150.68Z"/><path class="cls-3" d="M297,244.09a148.26,148.26,0,0,1-18,35.68c7.8,2.53,15.19,5,22.22,7.47-1.62-14.38.47-31.65,5.23-43Q301.8,244.15,297,244.09Z"/><path class="cls-3" d="M307.07,190.26,311,189.1a424.27,424.27,0,0,0-3.37-43.73L305,147.05A227,227,0,0,1,307.07,190.26Z"/><path class="cls-3" d="M225.75,325.15a315.29,315.29,0,0,0-20.83-25.84,12,12,0,0,0-9.18,1.86c-3.32,2.28-5.73,6.33-6.6,11.11v0c3.75,9.38,7.36,18.72,10.65,27.95C204.39,332.66,216.73,325.91,225.75,325.15Z"/><path class="cls-3" d="M175.05,278a14.38,14.38,0,0,1,5.76-5.68c-5-5.71-10.18-11.75-15.4-18.15C168.47,261.9,171.7,269.82,175.05,278Z"/><path class="cls-3" d="M186.8,306.52a19.11,19.11,0,0,1,6.74-8.55,15.51,15.51,0,0,1,7.77-2.74c-2.48-2.79-5-5.61-7.61-8.49-3.29-3.67-6.72-7.48-10.23-11.45-3,1.33-4.67,3.3-6.45,7.44.37.88.74,1.77,1.1,2.66C181,292.42,183.94,299.47,186.8,306.52Z"/><path class="cls-3" d="M244,359.34A137.91,137.91,0,0,0,228.41,329c-4-.36-10,1.4-15.56,4.58-6.07,3.47-10.26,7.92-10.93,11.62l-.14.76a340.31,340.31,0,0,1,10,34C218.63,371.34,235.48,360.86,244,359.34Z"/><path class="cls-3" d="M252.15,343.05c5.1-6.17,12.74-12.84,19.32-13.92a89,89,0,0,0-14.75-19.32c-4.47-.93-10.29,1.06-16.09,5.53-5.45,4.2-8.62,8.8-9.23,11.11a144.49,144.49,0,0,1,14.33,26.46A49.31,49.31,0,0,1,252.15,343.05Z"/><path class="cls-3" d="M177.16,251.25l-3.83-1.3,5,3.18C178,252.5,177.56,251.88,177.16,251.25Z"/><path class="cls-3" d="M170.61,244.91l3.39,1.16-.65-1.13Z"/><path class="cls-3" d="M165.45,230.62q7.76-10.35,15.25-20.51a15.83,15.83,0,0,1-6.4-5.51C171.44,213.16,168.47,221.83,165.45,230.62Z"/><path class="cls-3" d="M184.4,217.82a7.57,7.57,0,0,1-2.1-3.32q-5.9,8-12,16.09c3.69-3,7.35-6,11-8.8Q182.83,219.77,184.4,217.82Z"/><path class="cls-3" d="M171.18,241l-.19-.35-1,.34Z"/><path class="cls-3" d="M182.28,268.06a8,8,0,0,1,3.34-4.85c-.51-.65-1-1.31-1.51-2-5.16-3.15-10.52-6.48-16.11-10.07C172.83,257.11,177.59,262.69,182.28,268.06Z"/><path class="cls-3" d="M102.69,15.36A132.42,132.42,0,0,0,74.57,27.79l1.81-.72A233.9,233.9,0,0,0,102.69,15.36Z"/><path class="cls-3" d="M146.78,280.48A15.77,15.77,0,0,1,157,284.25V253.13c-3.48,8.92-7.19,18-11.06,27.38C146.19,280.49,146.48,280.48,146.78,280.48Z"/><path class="cls-3" d="M157,229.74V197.87a14.19,14.19,0,0,1-9.6,3.75Q152,215.46,157,229.74Z"/><path class="cls-3" d="M144.2,284.61l-.93,2.27c-3.11,7.52-6.23,15.06-9.27,22.6.6,0,1.2-.06,1.79-.06,9.09,0,16.62,4.84,21.17,10.26v-30C153.13,285.28,149.14,283.71,144.2,284.61Z"/><path class="cls-3" d="M132.36,313.57c-3.89,9.72-7.63,19.4-11,28.94h.46c12.17,0,27.82,8.9,35.16,16.34v-32C154.57,321.45,145.55,311.48,132.36,313.57Z"/><path class="cls-3" d="M125.59,129.43c13.06,1.6,28.57-10.23,31.37-16.18V70c-8.06,7.5-26.87,15.35-40.06,15.89A420.73,420.73,0,0,0,125.59,129.43Z"/><path class="cls-3" d="M126.61,133.41c2.92,11.33,6.25,22.89,9.9,34.69,12.57,2,18.15-6.14,20.45-11.57V119.82C150.53,126.71,137.91,134,126.61,133.41Z"/><path class="cls-3" d="M137.78,172.18q3.93,12.57,8.26,25.5c4.74.45,7.65-1.58,10.92-5.38V164.17C153.41,168.72,147.43,173.11,137.78,172.18Z"/><path class="cls-3" d="M72.87,363.08a130.66,130.66,0,0,0-5.39,24.66c6.57,1.24,16.59,8.57,19.83,11.06a94,94,0,0,1,14.22,13.12,160.4,160.4,0,0,1,3.34-26.52C101.67,377.59,80.71,364,72.87,363.08Z"/><path class="cls-3" d="M120,346.48a327.42,327.42,0,0,0-10.64,36.7c14,.52,38.23,10.57,47.65,18.91v-37C154,359.1,133.34,345.12,120,346.48Z"/><path class="cls-3" d="M67.06,391.56c0,.16,0,.33,0,.5,11,13.19,22.36,26.06,35.23,36.24a93.34,93.34,0,0,1-.74-9.59C97.62,410.56,75.39,393.24,67.06,391.56Z"/><path class="cls-3" d="M68.46,363.36l1-2.45.36-1.06c.38-2.46-1.84-7.89-7.16-14.32-6.36-7.68-13.86-12.87-18.33-12.66a112.23,112.23,0,0,0-7.79,20.37c.84,1.41,1.72,2.81,2.62,4.19,6.32,3.85,12.55,10.1,15.39,13.13a86.4,86.4,0,0,1,9.68,12.22,133,133,0,0,1,4.45-19.44Z"/><path class="cls-3" d="M108.57,387h-.07a145.74,145.74,0,0,0-3.15,29.87c14.48.17,41.54,11.22,51.61,20V408C155.83,403,126.15,387,108.57,387Z"/><path class="cls-3" d="M105.47,420.78a84.57,84.57,0,0,0,1.23,10.88C121,441.93,137.19,448.75,157,449.17v-6.39C155.79,437.62,123.65,420.85,105.47,420.78Z"/><path class="cls-3" d="M276.63,330.61a111.93,111.93,0,0,1,7.31,18c9.06-16.64,14.53-35.13,18.12-54.44C287.53,302.76,277.39,321,276.63,330.61Z"/><path class="cls-3" d="M256.85,384.76c4-4.89,8.07-9.75,12.15-14.46.1-.11.18-.23.28-.34A88.32,88.32,0,0,0,256.85,384.76Z"/><path class="cls-3" d="M116.39,82C132.92,81.6,155.9,68.72,157,63.59V23.16c-8.47,6.07-28.89,15.12-42.53,17.74A243.47,243.47,0,0,0,116.39,82Z"/><path class="cls-3" d="M304.55,278.69c1.13-8.21,2-16.52,2.78-24.86A95.6,95.6,0,0,0,304.55,278.69Z"/><path class="cls-3" d="M311.06,193.12c-1.39.41-2.81.84-4.23,1.28a191.42,191.42,0,0,1-8.58,45.82q4.77.06,9.31.19c.45-4.78,1.17-10,2.11-15.52.48-6.28,1-12.52,1.53-18.69C311.2,201.77,311.15,197.42,311.06,193.12Z"/><path class="cls-3" d="M273.27,332.86c-4.49,0-11.86,5.1-18.12,12.67-4.67,5.64-7,10.51-7.19,13.28a132.65,132.65,0,0,1,5.86,23.58,88.32,88.32,0,0,1,9.43-11.83c2.85-3,9.1-9.32,15.44-13.16q1.33-2,2.58-4.12a113.13,113.13,0,0,0-7.8-20.41Z"/><path class="cls-3" d="M114.64,36.88C129,33.77,153.59,22.6,157,18.2V6.87a224.49,224.49,0,0,0-38.87,4.46A177,177,0,0,0,114.64,36.88Z"/><path class="cls-3" d="M160.84,442.78v6.39c19.78-.42,36-7.24,50.25-17.47a85,85,0,0,0,1.24-10.92C194.15,420.85,162,437.62,160.84,442.78Z"/><path class="cls-3" d="M209.23,387C191.66,387,162,403,160.84,408v28.92c10.07-8.8,37.13-19.85,51.61-20A145.74,145.74,0,0,0,209.3,387Z"/><path class="cls-3" d="M216.29,418.71a94.3,94.3,0,0,1-.75,9.64c13-10.29,24.45-23.33,35.52-36.61,0-.08,0-.16,0-.23C243,392.81,220.23,410.46,216.29,418.71Z"/><path class="cls-3" d="M250.62,387.69A131.09,131.09,0,0,0,245.25,363c-7.57.56-29.07,14.44-32.32,22.37a160.25,160.25,0,0,1,3.34,26.6C224.36,402.33,241.81,389.13,250.62,387.69Z"/><path class="cls-3" d="M144,203.82a16,16,0,0,1-7,6.32q8.26,11.21,16.83,22.55Q148.81,218,144,203.82Z"/><path class="cls-3" d="M106,380a339.54,339.54,0,0,1,10-34l-.14-.76c-.67-3.7-4.86-8.15-10.92-11.62-5.37-3.06-11.14-4.81-15.13-4.61a137,137,0,0,0-15.7,30.42C82.73,361.12,99.26,371.45,106,380Z"/><path class="cls-3" d="M128.67,312.32v0c-.87-4.78-3.28-8.83-6.6-11.11a11.91,11.91,0,0,0-8.61-1.95,322.66,322.66,0,0,0-21,26c9,.93,21,7.58,25.57,15.08C121.31,331.05,124.92,321.7,128.67,312.32Z"/><path class="cls-3" d="M152.05,255c-5,6.14-10,11.94-14.76,17.43a14.33,14.33,0,0,1,5.46,5.52C146,270.12,149.09,262.5,152.05,255Z"/><path class="cls-3" d="M48.53,370l.27.33c4.08,4.72,8.11,9.57,12.15,14.45A89.14,89.14,0,0,0,48.53,370Z"/><path class="cls-3" d="M65.65,343.05a48,48,0,0,1,6.6,10.27,143.7,143.7,0,0,1,14.24-26.38c-.23-2.1-3.46-7.08-9.32-11.6s-11.62-6.46-16.09-5.53a89,89,0,0,0-14.75,19.32C52.91,330.21,60.55,336.88,65.65,343.05Z"/><path class="cls-3" d="M117.14,189.29a26.79,26.79,0,0,1-4.42,6.64,195.67,195.67,0,0,1,18.52,18.47,6.09,6.09,0,0,0,.73-4.56Q124.34,199.48,117.14,189.29Z"/><path class="cls-3" d="M135.61,268.47c4.91-5.64,9.9-11.52,14.95-17.8-5.39,3.47-10.56,6.7-15.55,9.76-.78,1-1.58,2.08-2.39,3.1A8.18,8.18,0,0,1,135.61,268.47Z"/><path class="cls-3" d="M133.77,217.41q2.25,2.76,4.39,5.7c3,2.39,6.1,4.84,9.19,7.38q-6-8-11.88-15.91A7.45,7.45,0,0,1,133.77,217.41Z"/><path class="cls-3" d="M81.69,169.13c9.72,8.83,19.2,16.47,28.11,24.23,2.44-2.71,4.2-5.79,4.55-8-7.13-10.23-13.84-20.32-20-30.27C92,159.88,86.67,165.65,81.69,169.13Z"/><path class="cls-3" d="M89.18,323.05a328.61,328.61,0,0,1,21.32-26.37,16.85,16.85,0,0,0-3.82-8.89,109.73,109.73,0,0,1-39.61,16.48c-.58.5-1.17,1-1.74,1.53,5.78.65,11.12,4.08,14.22,6.47C83.39,315.23,87.27,319.37,89.18,323.05Z"/><path class="cls-3" d="M34.14,306c5.07,6.43,8.53,13.06,10.07,19.19A96.55,96.55,0,0,1,61.53,304.1a125.23,125.23,0,0,1-19.75-21.2c-8.44,2.73-16.41,5.38-24,8A67.38,67.38,0,0,1,34.14,306Z"/><path class="cls-3" d="M139.68,285.4c.36-.9.73-1.78,1.1-2.67-1.71-4-3.34-6-6.12-7.29-3.66,4.14-7.22,8.11-10.64,11.92l-7.08,7.91a15.51,15.51,0,0,1,7.32,2.7,19.19,19.19,0,0,1,6.75,8.55C133.86,299.47,136.77,292.42,139.68,285.4Z"/><path class="cls-3" d="M24.09,104q-1.64-3.26-3.1-6.5a241.7,241.7,0,0,0-10.21,43.59l3.35,2.13A224.64,224.64,0,0,1,24.09,104Z"/><path class="cls-3" d="M11.68,194.61l-4.94-1.49c-.09,4.3-.14,8.65-.14,13.08.56,6.2,1.05,12.46,1.54,18.75.94,5.45,1.65,10.7,2.1,15.46q4.88-.14,10-.2A191.59,191.59,0,0,1,11.68,194.61Z"/><path class="cls-3" d="M13.49,147.46l-3.3-2.11A424.86,424.86,0,0,0,6.84,189.1c1.51.44,3.05.91,4.6,1.38A227.45,227.45,0,0,1,13.49,147.46Z"/><path class="cls-3" d="M15.85,294.24c3.61,19.31,9.07,37.76,18,54.32a112.11,112.11,0,0,1,7.29-17.95C40.41,321,30.32,302.85,15.85,294.24Z"/><path class="cls-3" d="M13.26,278.16a96,96,0,0,0-2.71-24C11.3,262.19,12.17,270.22,13.26,278.16Z"/><path class="cls-3" d="M76,112.15a314.61,314.61,0,0,0,19.09,36.5c8.53.36,25-9.65,26.52-18l.12-.68c-3.51-14-6.35-27.75-8.32-41.11C105.74,97.93,85.54,110.12,76,112.15Z"/><path class="cls-3" d="M97.37,152.4c6.12,10,12.82,20.08,19.94,30.32a11.51,11.51,0,0,0,8.38-1.86c3.45-2.34,5.95-6.54,6.86-11.52l.1-.55c-3.39-11-6.53-21.84-9.3-32.45C118.35,144.12,106.05,151.35,97.37,152.4Z"/><path class="cls-3" d="M127.87,184.07a15.19,15.19,0,0,1-7.75,2.66c4.7,6.69,9.57,13.42,14.55,20.2,3.48-1.39,5.86-4,7.59-8.29q-3.9-11.73-7.52-23.16A19.88,19.88,0,0,1,127.87,184.07Z"/><path class="cls-3" d="M43.58,55A157.08,157.08,0,0,0,55,42.52,115,115,0,0,0,43.58,55Z"/><path class="cls-3" d="M27.72,100.73a259.65,259.65,0,0,0,22.4,34.57c6.88-5.47,19.5-19.17,21-24.36A165.65,165.65,0,0,1,60.6,76.78C50.51,89.14,37,98,27.72,100.73Z"/><path class="cls-3" d="M25.21,97.38c10.87-2.23,26.4-14.9,34.54-25.85a99.83,99.83,0,0,1,0-28.68C53.12,51.09,43.85,61.21,35.17,67A150.15,150.15,0,0,0,22.91,92.25l.3.7Q24.14,95.13,25.21,97.38Z"/></g></g></svg>`;
+const heroMaskImg = new Image();
+heroMaskImg.src = 'data:image/svg+xml,' + encodeURIComponent(heroMaskSVG);
+const MASK_ASPECT = 455.7 / 318.1;
+
+// smoothing state so the mask doesn't jitter frame-to-frame while still tracking in real time
+let maskSmooth = null; // {x,y,angle,w}
+
+function drawFaceMask(det) {
+  if (!heroMaskImg.complete || heroMaskImg.naturalWidth === 0) return;
+  const box = det.boundingBox;
+  const vw = video.videoWidth || W, vh = video.videoHeight || H;
+  const scale = Math.max(W / vw, H / vh);
+  const bw = box.width * vw * scale;
+  const sizePct = parseInt(maskScale.value, 10) / 100;
+
+  // fallback: plain box center, no rotation, used only if landmarks are missing
+  let anchor = mapNormToCanvas(box.xCenter, box.yCenter, mirrored);
+  let angle = 0;
+  let maskW = bw * sizePct;
+
+  const lm = det.landmarks;
+  if (lm && lm.length >= 6) {
+    // face_detection landmark order: 0 rightEye, 1 leftEye, 2 noseTip, 3 mouthCenter, 4 rightEar, 5 leftEar
+    const eyeR = mapNormToCanvas(lm[0].x, lm[0].y, mirrored);
+    const eyeL = mapNormToCanvas(lm[1].x, lm[1].y, mirrored);
+    const nose = mapNormToCanvas(lm[2].x, lm[2].y, mirrored);
+    const mouth = mapNormToCanvas(lm[3].x, lm[3].y, mirrored);
+    const earR = mapNormToCanvas(lm[4].x, lm[4].y, mirrored);
+    const earL = mapNormToCanvas(lm[5].x, lm[5].y, mirrored);
+
+    // roll angle from BOTH the eye line and the ear line, averaged - this is what makes the
+    // mask tilt/turn with the head instead of always sitting upright
+    const eyeAngle = Math.atan2(eyeL.y - eyeR.y, eyeL.x - eyeR.x);
+    const earAngle = Math.atan2(earL.y - earR.y, earL.x - earR.x);
+    angle = Math.atan2(
+      (Math.sin(eyeAngle) + Math.sin(earAngle)) / 2,
+      (Math.cos(eyeAngle) + Math.cos(earAngle)) / 2
+    );
+
+    // ear-to-ear distance tracks the true head width even as it turns/tilts (foreshortens
+    // correctly on yaw, unlike the axis-aligned detection box), so the mask's proportions
+    // really do follow the shape of the face instead of a fixed ratio
+    const earDist = dist(earR, earL);
+    const eyeDist = dist(eyeR, eyeL);
+    const faceWidth = Math.max(eyeDist * 2.05, earDist * 0.92);
+    maskW = faceWidth * sizePct;
+
+    // anchor along the eye-midpoint -> mouth axis (the real vertical axis of the face, already
+    // rotated with the head) so the mask hugs forehead-to-chin as one rigid piece stuck on
+    const eyeMid = { x: (eyeR.x + eyeL.x) / 2, y: (eyeR.y + eyeL.y) / 2 };
+    const down = { x: mouth.x - eyeMid.x, y: mouth.y - eyeMid.y };
+    anchor = { x: eyeMid.x + down.x * 0.5, y: eyeMid.y + down.y * 0.5 };
+  }
+
+  // light smoothing keeps the stick-on feel steady instead of visibly shaking each frame
+  if (!maskSmooth) maskSmooth = { x: anchor.x, y: anchor.y, angle, w: maskW };
+  const smoothT = 0.55;
+  maskSmooth.x += (anchor.x - maskSmooth.x) * smoothT;
+  maskSmooth.y += (anchor.y - maskSmooth.y) * smoothT;
+  maskSmooth.w += (maskW - maskSmooth.w) * smoothT;
+  let dAngle = angle - maskSmooth.angle;
+  while (dAngle > Math.PI) dAngle -= Math.PI * 2;
+  while (dAngle < -Math.PI) dAngle += Math.PI * 2;
+  maskSmooth.angle += dAngle * smoothT;
+
+  const mW = maskSmooth.w;
+  const mH = mW * MASK_ASPECT;
+
+  ctx.save();
+  ctx.translate(maskSmooth.x, maskSmooth.y);
+  ctx.rotate(maskSmooth.angle);
+  ctx.drawImage(heroMaskImg, -mW / 2, -mH / 2, mW, mH);
+  ctx.restore();
+}
+
+/* ---------- hand glitch effect: flexible polygon anchored to fingertips ---------- */
+/* ---------- unified filter engine: every hand-driven effect (single-hand triangle, the
+   2-hand grid, and the 2-hand portal) draws through this one function, so all 15 styles are
+   available everywhere ---------- */
+const ALL_FILTERS = [
+  { key: 'prism', label: 'Prism' },
+  { key: 'chrome', label: 'Chrome' },
+  { key: 'bw', label: 'B&W' },
+  { key: 'scan', label: 'Scan' },
+  { key: 'mono', label: 'Mono' },
+  { key: 'dual-tone', label: 'Dual-Tone' },
+  { key: 'pixelate', label: 'Pixelate' },
+  { key: 'invert', label: 'Invert' },
+  { key: 'sepia', label: 'Sepia' },
+  { key: 'blur', label: 'Blur' },
+  { key: 'thermal', label: 'Thermal' },
+  { key: 'sketch', label: 'Sketch' },
+  { key: 'glitch', label: 'Glitch' },
+  { key: 'neon', label: 'Neon' },
+  { key: 'galaxy', label: 'Galaxy' }
+];
+function filterLabel(key) { const f = ALL_FILTERS.find(f => f.key === key); return f ? f.label : key; }
+
+// settings sheet: tap a chip to jump every hand effect (both hand slots + the portal) to that filter
+ALL_FILTERS.forEach((f, idx) => {
+  const chip = document.createElement('button');
+  chip.className = 'filter-chip';
+  chip.type = 'button';
+  chip.textContent = f.label;
+  chip.addEventListener('click', () => {
+    handFilterIndex = [idx, idx];
+    portalFilterIndex = idx;
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    showToast('Filter: ' + f.label);
+  });
+  filterChips.appendChild(chip);
+});
+filterChips.children[0].classList.add('active');
+
+const patchCanvas = document.createElement('canvas');
+const patchCtx = patchCanvas.getContext('2d', { willReadFrequently: true });
+const styleTmpCanvas = document.createElement('canvas');
+const styleTmpCtx = styleTmpCanvas.getContext('2d');
+const galaxyCanvas = document.createElement('canvas');
+const galaxyCtx = galaxyCanvas.getContext('2d');
+
+function buildGalaxyBackground() {
+  if (!W || !H) return;
+  galaxyCanvas.width = W; galaxyCanvas.height = H;
+  galaxyCtx.fillStyle = '#1e0a28';
+  galaxyCtx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 260; i++) {
+    galaxyCtx.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.8 + 0.2).toFixed(2) + ')';
+    const s = Math.random() < 0.8 ? 1 : 2;
+    galaxyCtx.fillRect(Math.random() * W, Math.random() * H, s, s);
+  }
+  for (let i = 0; i < 32; i++) {
+    galaxyCtx.beginPath();
+    galaxyCtx.fillStyle = `rgb(${150 + Math.random() * 105 | 0},${100 + Math.random() * 155 | 0},255)`;
+    galaxyCtx.arc(Math.random() * W, Math.random() * H, Math.random() * 3 + 1, 0, Math.PI * 2);
+    galaxyCtx.fill();
+  }
+}
+
+function clampByte(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+// draws the styled result for the given source rect into the shared `patchCanvas`
+function applyStyleFilterPixels(minX, minY, pw, ph, filterKey) {
+  patchCanvas.width = pw; patchCanvas.height = ph;
+  const intensity = parseInt(handIntensity.value, 10) / 100;
+  const t = performance.now() * 0.004;
+
+  if (filterKey === 'blur') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'blur(6px)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'mono') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'grayscale(1)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'invert') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'invert(1)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'sepia') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'sepia(1)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'thermal') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'grayscale(1) sepia(1) hue-rotate(180deg) saturate(8) contrast(1.3)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    return;
+  }
+  if (filterKey === 'pixelate') {
+    const block = Math.max(4, Math.round(Math.min(pw, ph) * 0.07));
+    const sw = Math.max(1, Math.round(pw / block)), sh = Math.max(1, Math.round(ph / block));
+    styleTmpCanvas.width = sw; styleTmpCanvas.height = sh;
+    styleTmpCtx.clearRect(0, 0, sw, sh);
+    styleTmpCtx.drawImage(off, minX, minY, pw, ph, 0, 0, sw, sh);
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.imageSmoothingEnabled = false;
+    patchCtx.drawImage(styleTmpCanvas, 0, 0, sw, sh, 0, 0, pw, ph);
+    patchCtx.imageSmoothingEnabled = true;
+    return;
+  }
+  if (filterKey === 'sketch') {
+    styleTmpCanvas.width = pw; styleTmpCanvas.height = ph;
+    styleTmpCtx.clearRect(0, 0, pw, ph);
+    styleTmpCtx.filter = 'grayscale(1)';
+    styleTmpCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    styleTmpCtx.filter = 'none';
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.drawImage(styleTmpCanvas, 0, 0);
+    patchCtx.filter = 'blur(5px) invert(1)';
+    patchCtx.globalCompositeOperation = 'color-dodge';
+    patchCtx.drawImage(styleTmpCanvas, 0, 0);
+    patchCtx.filter = 'none';
+    patchCtx.globalCompositeOperation = 'source-over';
+    return;
+  }
+  if (filterKey === 'galaxy') {
+    patchCtx.clearRect(0, 0, pw, ph);
+    patchCtx.filter = 'brightness(0.5) saturate(0.5)';
+    patchCtx.drawImage(off, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.filter = 'none';
+    patchCtx.globalCompositeOperation = 'screen';
+    patchCtx.globalAlpha = 0.85;
+    patchCtx.drawImage(galaxyCanvas, minX, minY, pw, ph, 0, 0, pw, ph);
+    patchCtx.globalCompositeOperation = 'source-over';
+    patchCtx.globalAlpha = 1;
+    return;
+  }
+
+  // everything below needs real per-pixel access: prism, chrome, bw, scan, dual-tone, glitch, neon
+  const srcData = offCtx.getImageData(minX, minY, pw, ph);
+  const src = srcData.data;
+  const out = patchCtx.createImageData(pw, ph);
+  const dst = out.data;
+
+  if (filterKey === 'prism') {
+    const chOffset = Math.round(4 + intensity * 18);
+    for (let y = 0; y < ph; y++) {
+      const rowShift = Math.round(Math.sin(y * 0.25 + t * 3) * intensity * 14);
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const sx = Math.min(pw - 1, Math.max(0, x + rowShift));
+        const rx = Math.min(pw - 1, Math.max(0, sx + chOffset));
+        const bx = Math.min(pw - 1, Math.max(0, sx - chOffset));
+        const ri = (y * pw + rx) * 4;
+        const gi = (y * pw + sx) * 4;
+        const bi = (y * pw + bx) * 4;
+        let r = src[ri], g = src[gi + 1], b = src[bi + 2];
+        const boost = 1 + intensity * 1.4;
+        const avg = (r + g + b) / 3;
+        dst[di] = clampByte(avg + (r - avg) * boost);
+        dst[di + 1] = clampByte(avg + (g - avg) * boost);
+        dst[di + 2] = clampByte(avg + (b - avg) * boost);
+        dst[di + 3] = 255;
+      }
+    }
+  } else if (filterKey === 'chrome') {
+    const sweep = (Math.sin(t * 2) * 0.5 + 0.5);
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const mx = pw - 1 - x;
+        const si = (y * pw + mx) * 4;
+        let r = src[si], g = src[si + 1], b = src[si + 2];
+        const lum = (r + g + b) / 3;
+        const highlight = Math.abs((x / pw) - sweep) < 0.12 * intensity + 0.02 ? 60 * intensity : 0;
+        dst[di] = clampByte(lum * 0.4 + r * 0.9 + highlight);
+        dst[di + 1] = clampByte(lum * 0.4 + g * 0.9 + highlight);
+        dst[di + 2] = clampByte(lum * 0.5 + b * 1.0 + highlight * 1.2);
+        dst[di + 3] = 255;
+      }
+    }
+  } else if (filterKey === 'bw') {
+    for (let y = 0; y < ph; y++) {
+      const grain = (Math.sin(y * 1.7 + t * 5) * 0.5 + 0.5) * intensity * 20;
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const lum = src[di] * 0.299 + src[di + 1] * 0.587 + src[di + 2] * 0.114;
+        const contrast = 1 + intensity * 0.6;
+        let v = clampByte((lum - 128) * contrast + 128 + grain - intensity * 10);
+        dst[di] = v; dst[di + 1] = v; dst[di + 2] = v; dst[di + 3] = 255;
+      }
+    }
+  } else if (filterKey === 'scan') {
+    const strips = 10 + Math.round(intensity * 20);
+    const stripH = Math.max(1, Math.floor(ph / strips));
+    for (let s = 0; s < strips; s++) {
+      const y0 = s * stripH;
+      const y1 = Math.min(ph, y0 + stripH);
+      const shift = Math.round((Math.sin(s * 13.37 + Math.floor(t * 6)) * 0.5 + 0.5 - 0.5) * pw * intensity * 0.6);
+      for (let y = y0; y < y1; y++) {
+        for (let x = 0; x < pw; x++) {
+          const di = (y * pw + x) * 4;
+          const sx = ((x + shift) % pw + pw) % pw;
+          const si = (y * pw + sx) * 4;
+          dst[di] = src[si]; dst[di + 1] = src[si + 1]; dst[di + 2] = src[si + 2]; dst[di + 3] = 255;
+        }
+      }
+    }
+  } else if (filterKey === 'dual-tone') {
+    for (let i = 0; i < pw * ph; i++) {
+      const o = i * 4;
+      const lum = src[o] * 0.299 + src[o + 1] * 0.587 + src[o + 2] * 0.114;
+      if (lum > 127) { dst[o] = 255; dst[o + 1] = 165; dst[o + 2] = 0; }
+      else { dst[o] = 255; dst[o + 1] = 20; dst[o + 2] = 147; }
+      dst[o + 3] = 255;
+    }
+  } else if (filterKey === 'glitch') {
+    const shift = Math.max(3, Math.round(pw * 0.05));
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const di = (y * pw + x) * 4;
+        const rx = Math.min(pw - 1, x + shift);
+        const bx = Math.max(0, x - shift);
+        const ri = (y * pw + rx) * 4, bi = (y * pw + bx) * 4;
+        dst[di] = src[ri]; dst[di + 1] = src[di + 1]; dst[di + 2] = src[bi + 2]; dst[di + 3] = 255;
+      }
+    }
+  } else { // neon
+    const lum = new Float32Array(pw * ph);
+    for (let i = 0; i < pw * ph; i++) {
+      const o = i * 4;
+      lum[i] = src[o] * 0.299 + src[o + 1] * 0.587 + src[o + 2] * 0.114;
+    }
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const i = y * pw + x, o = i * 4;
+        if (x > 0 && x < pw - 1 && y > 0 && y < ph - 1) {
+          const gx = lum[i + 1] - lum[i - 1];
+          const gy = lum[i + pw] - lum[i - pw];
+          const mag = Math.sqrt(gx * gx + gy * gy);
+          if (mag > 35) { dst[o] = 80; dst[o + 1] = 255; dst[o + 2] = 255; }
+          else { dst[o] = 0; dst[o + 1] = 0; dst[o + 2] = 0; }
+        } else { dst[o] = 0; dst[o + 1] = 0; dst[o + 2] = 0; }
+        dst[o + 3] = 255;
+      }
+    }
+  }
+  patchCtx.putImageData(out, 0, 0);
+}
+
+/* ---------- 2-hand portal: thumb+index of each hand form a quad showing a cycling filter,
+   ported & extended from python-handtrack (now shares the full 15-filter set) ---------- */
+let portalFilterIndex = 0;
+let portalGestureLatched = false;
+
+function polygonCentroid(pts) {
+  let x = 0, y = 0;
+  pts.forEach(p => { x += p.x; y += p.y; });
+  return { x: x / pts.length, y: y / pts.length };
+}
+
+// sorts vertices around their centroid so they always form a simple (non-crossing)
+// polygon, however many fingertip points are passed in - triangle, quad, pentagon, etc.
+function sortPolygonPoints(pts) {
+  const c = polygonCentroid(pts);
+  return [...pts].sort((a, b) => Math.atan2(a.y - c.y, a.x - c.x) - Math.atan2(b.y - c.y, b.x - c.x));
+}
+
+function drawPortal(cornersRaw) {
+  const pts = sortPolygonPoints(cornersRaw);
+  const pad = 6;
+  let minX = Math.max(0, Math.floor(Math.min(...pts.map(p => p.x)) - pad));
+  let minY = Math.max(0, Math.floor(Math.min(...pts.map(p => p.y)) - pad));
+  let maxX = Math.min(W, Math.ceil(Math.max(...pts.map(p => p.x)) + pad));
+  let maxY = Math.min(H, Math.ceil(Math.max(...pts.map(p => p.y)) + pad));
+  const pw = maxX - minX, ph = maxY - minY;
+  if (pw <= 6 || ph <= 6) return;
+
+  const filterKey = ALL_FILTERS[portalFilterIndex].key;
+  applyStyleFilterPixels(minX, minY, pw, ph, filterKey);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(patchCanvas, 0, 0, pw, ph, minX, minY, pw, ph);
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(0,255,255,0.85)';
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    for (let k = 0; k < 5; k++) {
+      const f = Math.random();
+      const px = a.x * f + b.x * (1 - f) + (Math.random() * 16 - 8);
+      const py = a.y * f + b.y * (1 - f) + (Math.random() * 16 - 8);
+      ctx.beginPath();
+      ctx.arc(px, py, 1 + Math.random() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const top = pts.reduce((m, p) => (p.y < m.y ? p : m), pts[0]);
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'center';
+  const label = 'PORTAL: ' + filterLabel(filterKey).toUpperCase();
+  const lw = ctx.measureText(label).width + 12;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(top.x - lw / 2, top.y - 30, lw, 20);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(label, top.x, top.y - 15);
+  ctx.restore();
+}
+
+/* ---------- 1-hand triangle patch (thumb+index+middle extended): each hand keeps its own
+   current filter and cycles it independently the moment ITS OWN index+middle tips touch ---------- */
+function drawHandGlitchPolygon(rawPoints, filterKey) {
+  if (rawPoints.length < 3) return;
+  const pts = sortPolygonPoints(rawPoints);
+  const pad = parseInt(handPadding.value, 10) * 0.5;
+
+  let minX = Math.min(...pts.map(p => p.x)) - pad;
+  let maxX = Math.max(...pts.map(p => p.x)) + pad;
+  let minY = Math.min(...pts.map(p => p.y)) - pad;
+  let maxY = Math.max(...pts.map(p => p.y)) + pad;
+  minX = Math.max(0, Math.floor(minX));
+  minY = Math.max(0, Math.floor(minY));
+  maxX = Math.min(W, Math.ceil(maxX));
+  maxY = Math.min(H, Math.ceil(maxY));
+  const pw = maxX - minX, ph = maxY - minY;
+  if (pw <= 4 || ph <= 4) return;
+
+  applyStyleFilterPixels(minX, minY, pw, ph, filterKey);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(patchCanvas, 0, 0, pw, ph, minX, minY, pw, ph);
+  ctx.restore();
+}
+
+/* ---------- 2-hand grid (both hands fully open): a row of white-bordered boxes with
+   alternating tall/short heights spanning the space between the two hands, each box
+   showing a different filter from the full set at once ---------- */
+function drawEffectGrid(ptsA, ptsB) {
+  const allPts = [...ptsA, ...ptsB];
+  const minX = Math.min(...allPts.map(p => p.x));
+  const maxX = Math.max(...allPts.map(p => p.x));
+  const minY = Math.min(...allPts.map(p => p.y));
+  const maxY = Math.max(...allPts.map(p => p.y));
+  const boxW = maxX - minX, boxH = maxY - minY;
+  if (boxW < 60 || boxH < 40) return;
+
+  const cols = Math.max(3, Math.min(9, Math.round(boxW / 65)));
+  const colW = boxW / cols;
+  const tallH = boxH;
+  const shortH = boxH * 0.6;
+
+  ctx.save();
+  for (let c = 0; c < cols; c++) {
+    const isTall = c % 2 === 0;
+    const cellH = isTall ? tallH : shortH;
+    const cellY = minY + (boxH - cellH) / 2; // shorter cells float centered, like a skyline
+    const cellX = minX + c * colW;
+    const filterKey = ALL_FILTERS[c % ALL_FILTERS.length].key;
+
+    const cx = Math.max(0, Math.floor(cellX));
+    const cy = Math.max(0, Math.floor(cellY));
+    const cw = Math.min(W - cx, Math.ceil(colW));
+    const ch = Math.min(H - cy, Math.ceil(cellH));
+    if (cw <= 2 || ch <= 2) continue;
+
+    applyStyleFilterPixels(cx, cy, cw, ch, filterKey);
+    ctx.drawImage(patchCanvas, 0, 0, cw, ch, cx, cy, cw, ch);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx + 1, cy + 1, cw - 2, ch - 2);
+  }
+  ctx.restore();
+}
+
+/* ---------- landmark smoothing so effects stay glued to fingers without jitter ---------- */
+let smoothedHandsPts = [];
+let gestureHistory = [[], []]; // small rolling buffer per hand slot for majority-vote stability
+
+function smoothLandmarks(rawHandsPts) {
+  const alpha = 0.45; // higher = tighter/more responsive tracking, lower = smoother but laggier
+  const result = [];
+  for (let h = 0; h < rawHandsPts.length; h++) {
+    const raw = rawHandsPts[h];
+    const prev = smoothedHandsPts[h];
+    if (!prev || prev.length !== raw.length) {
+      result.push(raw.map(p => ({ x: p.x, y: p.y })));
+    } else {
+      result.push(raw.map((p, i) => ({
+        x: prev[i].x + (p.x - prev[i].x) * alpha,
+        y: prev[i].y + (p.y - prev[i].y) * alpha
+      })));
+    }
+  }
+  smoothedHandsPts = result;
+  return result;
+}
+
+function stableGesture(rawGesture, slot) {
+  const hist = gestureHistory[slot];
+  hist.push(rawGesture);
+  if (hist.length > 4) hist.shift();
+  const counts = {};
+  hist.forEach(g => { counts[g] = (counts[g] || 0) + 1; });
+  let best = rawGesture, bestCount = 0;
+  Object.keys(counts).forEach(g => { if (counts[g] > bestCount) { best = g; bestCount = counts[g]; } });
+  return best;
+}
+
+function drawHandEffects() {
+  if (lastHandLandmarks.length === 0) {
+    smoothedHandsPts = [];
+    gestureHistory = [[], []];
+    portalGestureLatched = false;
+    triSwitchLatched = [false, false];
+    return;
+  }
+
+  const rawPts = lastHandLandmarks.map(landmarks =>
+    landmarks.map(p => mapNormToCanvas(p.x, p.y, mirrored))
+  );
+  const handsPts = smoothLandmarks(rawPts);
+  const gestures = handsPts.map((pts, i) => stableGesture(getHandGesture(pts), i));
+
+  // live debug label so you can see what's being detected while you tune your pose
+  handsPts.forEach((pts, i) => drawGestureLabel(pts[0], gestures[i], pts, handFilterIndex[i]));
+
+  // 1 or 2 hands, each independently: thumb + index + middle extended -> per-hand triangle
+  // patch, showing THAT hand's own current filter. Touching index tip to middle tip on a
+  // hand cycles that hand's filter forward - fully independent between the two hands.
+  handsPts.forEach((pts, i) => {
+    if (gestures[i] === 'tri') {
+      const switchThresh = W * 0.03;
+      const touching = dist(pts[8], pts[12]) < switchThresh;
+      if (touching) {
+        if (!triSwitchLatched[i]) {
+          handFilterIndex[i] = (handFilterIndex[i] + 1) % ALL_FILTERS.length;
+          showToast('Tangan ' + (i + 1) + ': ' + ALL_FILTERS[handFilterIndex[i]].label);
+          triSwitchLatched[i] = true;
+        }
+      } else {
+        triSwitchLatched[i] = false;
+      }
+      drawHandGlitchPolygon([pts[4], pts[8], pts[12]], ALL_FILTERS[handFilterIndex[i]].key);
+    } else {
+      triSwitchLatched[i] = false;
+    }
+  });
+
+  // exactly 2 hands, both fully open (all 5 fingers extended) -> row of white-bordered boxes
+  // with alternating tall/short heights, each showing a different filter at once
+  if (handsPts.length === 2 && gestures[0] === 'all' && gestures[1] === 'all') {
+    drawEffectGrid(handsPts[0], handsPts[1]);
+    portalGestureLatched = false;
+  } else {
+    // exactly 2 hands otherwise -> thumb+index of each hand forms a portal quad showing a
+    // stylized filter; bringing the two index tips together (or thumb+pinky on either hand)
+    // cycles to the next filter, ported from the python-handtrack reference
+    if (handsPts.length === 2) {
+      const thumbA = handsPts[0][4], idxA = handsPts[0][8], pinkyA = handsPts[0][20];
+      const thumbB = handsPts[1][4], idxB = handsPts[1][8], pinkyB = handsPts[1][20];
+
+      const switchThresh = W * 0.035;
+      const wantsSwitch = dist(idxA, idxB) < switchThresh ||
+        dist(thumbA, pinkyA) < switchThresh ||
+        dist(thumbB, pinkyB) < switchThresh;
+
+      if (wantsSwitch) {
+        if (!portalGestureLatched) {
+          portalFilterIndex = (portalFilterIndex + 1) % ALL_FILTERS.length;
+          showToast('Portal: ' + ALL_FILTERS[portalFilterIndex].label);
+          portalGestureLatched = true;
+        }
+      } else {
+        portalGestureLatched = false;
+      }
+
+      drawPortal([thumbA, idxA, idxB, thumbB]);
+    } else {
+      portalGestureLatched = false;
+    }
+  }
+}
+
+function drawGestureLabel(wristPt, gesture, pts, filterIdx) {
+  const labels = { tri: 'TRI', pinch2: 'PINCH2', all: 'ALL', none: '—' };
+  const colors = { tri: '#7ee08a', pinch2: '#1ec8c8', all: '#f0c419', none: 'rgba(255,255,255,0.5)' };
+  const f = getExtendedPattern(pts);
+  const pattern = (f.thumb ? 'T' : '_') + (f.index ? 'I' : '_') + (f.middle ? 'M' : '_') + (f.ring ? 'R' : '_') + (f.pinky ? 'P' : '_');
+  const text = (labels[gesture] || '—') + ' ' + pattern;
+  ctx.save();
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  const w = ctx.measureText(text).width + 14;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(wristPt.x - w / 2, wristPt.y + 14, w, 20);
+  ctx.fillStyle = colors[gesture] || '#fff';
+  ctx.fillText(text, wristPt.x, wristPt.y + 29);
+  ctx.restore();
+}
+
+/* ---------- finger-combo gesture detection: based on which fingers are extended, not pinch distance ---------- */
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+// a finger counts as "extended" when its tip sits farther from the wrist than its own middle joint
+function isFingerExtended(pts, tipIdx, pipIdx) {
+  return dist(pts[tipIdx], pts[0]) > dist(pts[pipIdx], pts[0]);
+}
+
+function getExtendedPattern(pts) {
+  return {
+    thumb: isFingerExtended(pts, 4, 2),
+    index: isFingerExtended(pts, 8, 6),
+    middle: isFingerExtended(pts, 12, 10),
+    ring: isFingerExtended(pts, 16, 14),
+    pinky: isFingerExtended(pts, 20, 18)
+  };
+}
+
+function getHandGesture(pts) {
+  const f = getExtendedPattern(pts);
+
+  if (f.thumb && f.index && f.middle && f.ring && f.pinky) return 'all';
+  if (f.thumb && f.index && f.middle && !f.ring && !f.pinky) return 'tri';
+  if (f.thumb && f.index && !f.middle && !f.ring && !f.pinky) return 'pinch2';
+  return 'none';
+}
+
+/* ---------- main render loop ---------- */
+function renderFrame() {
+  drawVideoCover(offCtx, video, W, H, mirrored);
+
+  ctx.save();
+  if (currentMode === 'malam') {
+    ctx.filter = 'brightness(1.25) contrast(0.95) saturate(0.9)';
+  } else if (currentMode === 'potret') {
+    ctx.filter = 'saturate(1.1) contrast(1.05)';
+  } else {
+    ctx.filter = 'none';
+  }
+  ctx.drawImage(off, 0, 0);
+  ctx.restore();
+
+  if (faceEffectMode === 'mask') {
+    for (const det of lastDetections) drawFaceMask(det);
+  }
+  if (handEnabled) {
+    drawHandEffects();
+  }
+
+  requestAnimationFrame(renderFrame);
+}
+
+/* ---------- face detection ---------- */
+function setupFaceDetection() {
+  faceDetection = new FaceDetection({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+  });
+  faceDetection.setOptions({
+    model: 'short',
+    minDetectionConfidence: parseInt(confidenceSlider.value, 10) / 100
+  });
+  faceDetection.onResults((results) => {
+    lastDetections = results.detections || [];
+  });
+}
+confidenceSlider.addEventListener('change', () => {
+  faceDetection.setOptions({
+    model: 'short',
+    minDetectionConfidence: parseInt(confidenceSlider.value, 10) / 100
+  });
+});
+
+/* ---------- hand detection ---------- */
+function setupHandsDetection() {
+  handsDetector = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+  handsDetector.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.5
+  });
+  handsDetector.onResults((results) => {
+    lastHandLandmarks = results.multiHandLandmarks || [];
+  });
+}
+
+/* ---------- capture photo ---------- */
+function capturePhoto() {
+  canvas.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    thumb.innerHTML = `<img src="${url}">`;
+    thumb.dataset.url = url;
+    thumb.dataset.type = 'image';
+    showToast('Foto tersimpan');
+  }, 'image/jpeg', 0.92);
+}
+
+thumb.addEventListener('click', () => {
+  if (!thumb.dataset.url) return;
+  const a = document.createElement('a');
+  a.href = thumb.dataset.url;
+  a.download = thumb.dataset.type === 'video' ? 'blurcam.webm' : 'blurcam.jpg';
+  a.click();
+});
+
+/* ---------- video recording ---------- */
+function startRecording() {
+  const canvasStream = canvas.captureStream(30);
+  recordedChunks = [];
+  mediaRecorder = new MediaRecorder(canvasStream, { mimeType: 'video/webm;codecs=vp9' });
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    thumb.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;font-size:16px;">&#9658;</div>`;
+    thumb.dataset.url = url;
+    thumb.dataset.type = 'video';
+    showToast('Video tersimpan');
+  };
+  mediaRecorder.start();
+  isRecording = true;
+  shutterBtn.classList.add('recording');
+}
+function stopRecording() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    shutterBtn.classList.remove('recording');
+  }
+}
+
+/* ---------- shutter ---------- */
+shutterBtn.addEventListener('click', () => {
+  if (currentMode === 'video') {
+    isRecording ? stopRecording() : startRecording();
+  } else {
+    capturePhoto();
+  }
+});
+
+/* ---------- flip camera ---------- */
+flipBtn.addEventListener('click', async () => {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  mirrored = facingMode === 'user';
+  await startCamera(true);
+});
+
+/* ---------- manual detection loop ----------
+   Driven directly off our own video element/stream (no separate helper re-requesting
+   getUserMedia at a fixed 480x640), so the feed always keeps its native resolution/FOV
+   instead of getting silently swapped for a cropped, zoomed-in stream. */
+async function detectionLoop() {
+  if (!detectionRunning) return;
+  if (video.readyState >= 2) {
+    await faceDetection.send({ image: video });
+    await handsDetector.send({ image: video });
+  }
+  if (!detectionRunning) return;
+  if (video.requestVideoFrameCallback) {
+    video.requestVideoFrameCallback(detectionLoop);
+  } else {
+    requestAnimationFrame(detectionLoop);
+  }
+}
+
+/* ---------- start camera ---------- */
+async function startCamera(isSwitch) {
+  try {
+    if (!isSwitch) startBtn.textContent = 'Memuat...';
+    detectionRunning = false;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    resizeCanvases();
+
+    if (!faceDetection) setupFaceDetection();
+    if (!handsDetector) setupHandsDetection();
+
+    detectionRunning = true;
+    detectionLoop();
+
+    if (!isSwitch) {
+      statusPill.textContent = 'Blur wajah aktif';
+      startOverlay.style.display = 'none';
+      requestAnimationFrame(renderFrame);
+    }
+  } catch (err) {
+    startBtn.textContent = 'Aktifkan Kamera';
+    alert('Tidak bisa mengakses kamera: ' + err.message);
+  }
+}
+
+startBtn.addEventListener('click', () => startCamera(false));
+resizeCanvases();
+</script>
+</body>
+</html>
